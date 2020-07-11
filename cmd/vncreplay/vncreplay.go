@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/base64"
+	"flag"
 	"image"
 	"image/color"
 	"image/draw"
@@ -11,8 +13,18 @@ import (
 )
 
 func main() {
-	inFile := "screenshot.dat"
-	outFile := "screenshot.png"
+	var inFile, outFile string
+	flag.StringVar(&inFile, "i", "", "Input file")
+	flag.StringVar(&outFile, "o", "replay.html", "Output file")
+	flag.Parse()
+
+	if inFile == "" {
+		if len(flag.Args()) > 0 {
+			inFile = flag.Args()[0]
+		} else {
+			log.Fatalf("Usage: replay [-o OUTFILE] INFILE")
+		}
+	}
 
 	buf, err := ioutil.ReadFile(inFile)
 	if err != nil {
@@ -22,14 +34,20 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer out.Close()
+	out.Write([]byte(`<!DOCTYPE html><html><body>`))
+	defer func() {
+		out.Write([]byte(`</body></html>`))
+		out.Close()
+	}()
 
 	ppf := ParsePixelFormat([]byte{8, 8, 0, 1, 0, 7, 0, 7, 0, 3, 0, 3, 6, 0, 0, 0})
 	screen := image.NewRGBA(image.Rect(0, 0, 1280, 720))
 
 	ppf.decodeFrameBufferUpdate(buf, screen)
 
-	png.Encode(out, screen)
+	out.Write([]byte(`<div><img src="data:image/png;base64,`))
+	png.Encode(base64.NewEncoder(base64.StdEncoding, out), screen)
+	out.Write([]byte(`" /></div>`))
 }
 
 func (ppf PixelFormat) decodeFrameBufferUpdate(buf []byte, targetImage draw.Image) int {
