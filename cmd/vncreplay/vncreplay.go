@@ -41,6 +41,8 @@ func main() {
 		out.Close()
 	}()
 
+	rfb := NewRFB(out)
+
 	var handle *pcap.Handle
 
 	// Open pcap file
@@ -52,9 +54,7 @@ func main() {
 
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
-	var serverPort, sourcePort, lastPort layers.TCPPort = 0, 0, 0
-
-	buf := make([]byte, 0, 2000)
+	var serverPort, sourcePort layers.TCPPort = 0, 0
 
 	for packet := range packetSource.Packets() {
 		// Get the TCP layer from this packet
@@ -65,40 +65,132 @@ func main() {
 			if serverPort == 0 && sourcePort == 0 {
 				// Assume the first packet is the first SYN
 				serverPort, sourcePort = tcp.DstPort, tcp.SrcPort
-				lastPort = tcp.SrcPort
 			}
 
 			if len(tcp.Payload) == 0 {
 				continue
 			}
 
-			if lastPort != tcp.SrcPort {
-				if len(buf) > 0 {
-					fmt.Fprintf(out, "<h5>turn</h5>\n")
-					if lastPort == serverPort {
-						readServerBytes(buf, out)
-					} else {
-						readClientBytes(buf, out)
-					}
-				}
-
-				buf = buf[:0]
-				lastPort = tcp.SrcPort
+			err = nil
+			if tcp.SrcPort == serverPort {
+				err = rfb.ServerBytes(tcp.Payload)
+			} else if tcp.SrcPort == sourcePort {
+				err = rfb.ClientBytes(tcp.Payload)
+			} else {
+				log.Printf("Ignoring extra traffic")
 			}
-
-			buf = append(buf, tcp.Payload...)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 }
 
-var ignoreClientHandshake int = 5
+type RFBState int
+
+const (
+	StateUninitialised RFBState = iota
+	StateServerVersionSent
+	StateClientVersionSent
+	StateSecurityOffered
+	StateSecurityChosen
+	StateSecurityChallengeSent
+	StateSecurityChallengeAccepted
+	StateSecurityOK
+	StateClientInitSent
+	StateServerInitSent
+	StateClientTalking
+	StateServerTalking
+)
+
+func (s RFBState) String() string {
+	return []string{
+		"uninitialised",
+		"server version sent",
+		"client version sent",
+		"security offered",
+		"security chosen",
+		"security challenge sent",
+		"security challenge accepted",
+		"security ok",
+		"client init sent",
+		"server init sent",
+		"client talking",
+		"server talking",
+	}[int(s)]
+}
+
+type RFB struct {
+	state        RFBState
+	htmlOut      io.WriteCloser
+	clientBuffer []byte
+	serverBuffer []byte
+	pixelFormat  PixelFormat
+}
+
+func NewRFB(out io.WriteCloser) *RFB {
+	var rfb = &RFB{
+		state:        StateUninitialised,
+		htmlOut:      out,
+		clientBuffer: make([]byte, 0, 2000),
+		serverBuffer: make([]byte, 0, 2000),
+	}
+	return rfb
+}
+
+func (rfb *RFB) ClientBytes(buf []byte) error {
+	if rfb.state == StateServerTalking {
+		readServerBytes(rfb.serverBuffer, rfb.htmlOut)
+		rfb.serverBuffer = rfb.serverBuffer[:0]
+		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
+		rfb.state = StateClientTalking
+	} else if rfb.state == StateClientTalking {
+		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
+	} else if rfb.state == StateServerVersionSent {
+		rfb.state = StateClientVersionSent
+	} else if rfb.state == StateSecurityOffered {
+		rfb.state = StateSecurityChosen
+	} else if rfb.state == StateSecurityChallengeSent {
+		rfb.state = StateSecurityChallengeAccepted
+	} else if rfb.state == StateSecurityOK {
+		rfb.state = StateClientInitSent
+	} else if rfb.state == StateServerInitSent {
+		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
+		rfb.state = StateClientTalking
+	} else {
+		return fmt.Errorf("handshake error: no client bytes expected in state '%s'", rfb.state)
+	}
+	return nil
+}
+
+func (rfb *RFB) ServerBytes(buf []byte) error {
+	if rfb.state == StateServerTalking {
+		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
+	} else if rfb.state == StateClientTalking {
+		readClientBytes(rfb.clientBuffer, rfb.htmlOut)
+		rfb.clientBuffer = rfb.clientBuffer[:0]
+		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
+		rfb.state = StateServerTalking
+	} else if rfb.state == StateUninitialised {
+		rfb.state = StateServerVersionSent
+	} else if rfb.state == StateClientVersionSent {
+		rfb.state = StateSecurityOffered
+	} else if rfb.state == StateSecurityChosen {
+		rfb.state = StateSecurityChallengeSent
+	} else if rfb.state == StateSecurityChallengeAccepted {
+		rfb.state = StateSecurityOK
+	} else if rfb.state == StateClientInitSent {
+		rfb.state = StateServerInitSent
+	} else if rfb.state == StateServerInitSent {
+		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
+		rfb.state = StateServerTalking
+	} else {
+		return fmt.Errorf("handshake error: no server bytes expected in state '%s'", rfb.state)
+	}
+	return nil
+}
 
 func readClientBytes(buf []byte, out io.Writer) {
-	if ignoreClientHandshake > 0 {
-		ignoreClientHandshake -= 1
-		fmt.Fprintf(out, "<div>Ignoring %d more handshake packages</div>\n", ignoreClientHandshake)
-		return
-	}
 	offset := 0
 	for len(buf) > 0 {
 		messageType := buf[0]
@@ -122,14 +214,7 @@ func readClientBytes(buf []byte, out io.Writer) {
 	}
 }
 
-var ignoreServerHandshake int = 6
-
 func readServerBytes(buf []byte, out io.Writer) {
-	if ignoreServerHandshake > 0 {
-		ignoreServerHandshake -= 1
-		fmt.Fprintf(out, "<div>Ignoring %d more handshake packages</div>\n", ignoreServerHandshake)
-		return
-	}
 	offset := 0
 	for len(buf) > 0 {
 		messageType := buf[0]
@@ -179,13 +264,13 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image) {
 	y := rInt(buf[2:4])
 	w := rInt(buf[4:6])
 	h := rInt(buf[6:8])
-	enctype := rInt(buf[8:12])
+	enctype := int32(uint32(rInt(buf[8:12])))
 	log.Printf("next rect is a %dx%d rectangle at position %d,%d", w, h, x, y)
 	log.Printf("encoding type: %02x (%d)", enctype, enctype)
 
 	rv := image.NewRGBA(image.Rect(x, y, x+w, y+h))
 
-	if enctype == 0 {
+	if enctype == 0 || enctype == -239 {
 		// Raw encoding
 
 		offset := 12
