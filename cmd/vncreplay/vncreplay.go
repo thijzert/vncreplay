@@ -35,13 +35,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	out.Write([]byte(`<!DOCTYPE html><html><body>`))
-	defer func() {
-		out.Write([]byte(`</body></html>`))
-		out.Close()
-	}()
-
 	rfb := NewRFB(out)
+	defer rfb.Close()
 
 	var handle *pcap.Handle
 
@@ -135,13 +130,20 @@ func NewRFB(out io.WriteCloser) *RFB {
 		clientBuffer: make([]byte, 0, 2000),
 		serverBuffer: make([]byte, 0, 2000),
 	}
+
+	rfb.htmlOut.Write([]byte(`<!DOCTYPE html><html><body>`))
+
 	return rfb
+}
+
+func (rfb *RFB) Close() error {
+	rfb.htmlOut.Write([]byte(`</body></html>`))
+	return rfb.htmlOut.Close()
 }
 
 func (rfb *RFB) ClientBytes(buf []byte) error {
 	if rfb.state == StateServerTalking {
-		readServerBytes(rfb.serverBuffer, rfb.htmlOut)
-		rfb.serverBuffer = rfb.serverBuffer[:0]
+		rfb.readServerBytes()
 		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
 		rfb.state = StateClientTalking
 	} else if rfb.state == StateClientTalking {
@@ -167,8 +169,7 @@ func (rfb *RFB) ServerBytes(buf []byte) error {
 	if rfb.state == StateServerTalking {
 		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
 	} else if rfb.state == StateClientTalking {
-		readClientBytes(rfb.clientBuffer, rfb.htmlOut)
-		rfb.clientBuffer = rfb.clientBuffer[:0]
+		rfb.readClientBytes()
 		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
 		rfb.state = StateServerTalking
 	} else if rfb.state == StateUninitialised {
@@ -190,47 +191,61 @@ func (rfb *RFB) ServerBytes(buf []byte) error {
 	return nil
 }
 
-func readClientBytes(buf []byte, out io.Writer) {
+func (rfb *RFB) readClientBytes() {
 	offset := 0
-	for len(buf) > 0 {
-		messageType := buf[0]
-		offset = len(buf)
+	for len(rfb.clientBuffer) > 0 {
+		messageType := rfb.clientBuffer[0]
+		offset = len(rfb.clientBuffer)
 		if messageType == 0 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: Set pixel format to: %02x</div>\n", buf)
+			rfb.pixelFormat = ParsePixelFormat(rfb.clientBuffer[4:20])
+			fmt.Fprintf(rfb.htmlOut, "<div>Pixel format set to: %s</div>\n", rfb.pixelFormat)
+			offset = 20
 		} else if messageType == 2 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: SetEncodings</div>\n")
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: SetEncodings</div>\n")
+			offset = 4 + rInt(rfb.clientBuffer[2:4])*4
 		} else if messageType == 3 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: FramebufferUpdateRequest</div>\n")
+			offset = 10
+			fmt.Fprintf(rfb.htmlOut, "<div>Framebuffer Update Request for a %dx%dpx area at %dx%d</div>\n", rInt(rfb.clientBuffer[2:4]), rInt(rfb.clientBuffer[4:6]), rInt(rfb.clientBuffer[6:8]), rInt(rfb.clientBuffer[8:10]))
 		} else if messageType == 4 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: KeyEvent</div>\n")
+			key := rInt(rfb.clientBuffer[4:8])
+			if rInt(rfb.clientBuffer[1:2]) == 1 {
+				fmt.Fprintf(rfb.htmlOut, "<div>Press key <tt>%c</tt> (0x%2x)</div>\n", key, key)
+			} else {
+				fmt.Fprintf(rfb.htmlOut, "<div>release key <tt>%c</tt> (0x%2x)</div>\n", key, key)
+			}
+			offset = 8
 		} else if messageType == 5 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: PointerEvent</div>\n")
+			bm := rInt(rfb.clientBuffer[1:2])
+			x := rInt(rfb.clientBuffer[2:4])
+			y := rInt(rfb.clientBuffer[4:6])
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">Move pointer to %d,%d with buttons %x</div>\n", x, y, bm)
+			offset = 6
 		} else if messageType == 6 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
 		} else {
-			fmt.Fprintf(out, "<div class=\"-error\">Unknown client packet type %d - ignoring all %d bytes</div>\n", messageType, len(buf))
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown client packet type %d - ignoring all %d bytes</div>\n", messageType, len(rfb.clientBuffer))
 		}
-		buf = buf[offset:]
+		rfb.clientBuffer = rfb.clientBuffer[offset:]
 	}
 }
 
-func readServerBytes(buf []byte, out io.Writer) {
+func (rfb *RFB) readServerBytes() {
 	offset := 0
-	for len(buf) > 0 {
-		messageType := buf[0]
-		offset = len(buf)
+	for len(rfb.serverBuffer) > 0 {
+		messageType := rfb.serverBuffer[0]
+		offset = len(rfb.serverBuffer)
 		if messageType == 0 {
-			offset = decodeFrameBufferUpdate(buf, out)
+			offset = decodeFrameBufferUpdate(rfb.serverBuffer, rfb.htmlOut)
 		} else if messageType == 1 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: SetColourMapEntries</div>\n")
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: SetColourMapEntries</div>\n")
 		} else if messageType == 2 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: Bell</div>\n")
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: Bell</div>\n")
 		} else if messageType == 3 {
-			fmt.Fprintf(out, "<div class=\"-todo\">TODO: ServerCutText</div>\n")
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ServerCutText</div>\n")
 		} else {
-			fmt.Fprintf(out, "<div class=\"-error\">Unknown server packet type %d - ignoring all %d bytes</div>\n", messageType, len(buf))
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d - ignoring all %d bytes</div>\n", messageType, len(rfb.serverBuffer))
 		}
-		buf = buf[offset:]
+		rfb.serverBuffer = rfb.serverBuffer[offset:]
 	}
 }
 
@@ -360,5 +375,13 @@ func (p PixelFormat) ReadPixel(buf []byte) (int, color.Color) {
 		G: uint8((g * 0xff) / p.GreenMax),
 		B: uint8((b * 0xff) / p.BlueMax),
 		A: 0xff,
+	}
+}
+
+func (p PixelFormat) String() string {
+	if p.TrueColour {
+		return fmt.Sprintf("%d-bit true colour", p.Bits)
+	} else {
+		return fmt.Sprintf("%d-bit mapped", p.Bits)
 	}
 }
