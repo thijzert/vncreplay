@@ -120,7 +120,10 @@ type RFB struct {
 	htmlOut      io.WriteCloser
 	clientBuffer []byte
 	serverBuffer []byte
+	width        int
+	height       int
 	pixelFormat  PixelFormat
+	name         string
 }
 
 func NewRFB(out io.WriteCloser) *RFB {
@@ -182,6 +185,15 @@ func (rfb *RFB) ServerBytes(buf []byte) error {
 		rfb.state = StateSecurityOK
 	} else if rfb.state == StateClientInitSent {
 		rfb.state = StateServerInitSent
+		rfb.width = rInt(buf[0:2])
+		rfb.height = rInt(buf[2:4])
+		rfb.pixelFormat = ParsePixelFormat(buf[4:20])
+		fmt.Fprintf(rfb.htmlOut, "<div>Remote display %dx%d, %s</div>\n", rfb.width, rfb.height, rfb.pixelFormat)
+		nlen := rInt(buf[20:24])
+		if nlen > 0 {
+			rfb.name = string(buf[24 : 24+nlen])
+			fmt.Fprintf(rfb.htmlOut, "<div>Server name: %s</div>\n", rfb.name)
+		}
 	} else if rfb.state == StateServerInitSent {
 		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
 		rfb.state = StateServerTalking
@@ -235,7 +247,7 @@ func (rfb *RFB) readServerBytes() {
 		messageType := rfb.serverBuffer[0]
 		offset = len(rfb.serverBuffer)
 		if messageType == 0 {
-			offset = decodeFrameBufferUpdate(rfb.serverBuffer, rfb.htmlOut)
+			offset = rfb.decodeFrameBufferUpdate()
 		} else if messageType == 1 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: SetColourMapEntries</div>\n")
 		} else if messageType == 2 {
@@ -249,16 +261,15 @@ func (rfb *RFB) readServerBytes() {
 	}
 }
 
-func decodeFrameBufferUpdate(buf []byte, out io.Writer) int {
-	ppf := ParsePixelFormat([]byte{8, 8, 0, 1, 0, 7, 0, 7, 0, 3, 0, 3, 6, 0, 0, 0})
-	targetImage := image.NewRGBA(image.Rect(0, 0, 1280, 720))
+func (rfb *RFB) decodeFrameBufferUpdate() int {
+	targetImage := image.NewRGBA(image.Rect(0, 0, rfb.width, rfb.height))
 
-	nRects := rInt(buf[2:4])
+	nRects := rInt(rfb.serverBuffer[2:4])
 	log.Printf("Number of rects: %d", nRects)
 
 	offset := 4
 	for i := 0; i < nRects; i++ {
-		n, img := ppf.nextRect(buf[offset:])
+		n, img := rfb.pixelFormat.nextRect(rfb.serverBuffer[offset:])
 		offset += n
 
 		if img != nil {
@@ -267,9 +278,9 @@ func decodeFrameBufferUpdate(buf []byte, out io.Writer) int {
 		}
 	}
 
-	out.Write([]byte(`<div>framebuffer update<br /><img src="data:image/png;base64,`))
-	png.Encode(base64.NewEncoder(base64.StdEncoding, out), targetImage)
-	out.Write([]byte(`" /></div>`))
+	rfb.htmlOut.Write([]byte(`<div>framebuffer update<br /><img src="data:image/png;base64,`))
+	png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
+	rfb.htmlOut.Write([]byte(`" /></div>`))
 
 	return offset
 }
