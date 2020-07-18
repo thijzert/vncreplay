@@ -126,8 +126,14 @@ func (rfb *RFB) ClientBytes(t time.Duration, offset int, buf []byte) error {
 	if offset == len(rfb.clientBuffer) {
 		// Simple case: in-order, contiguous packet delivery
 		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
+	} else if offset > len(rfb.clientBuffer) {
+		// We've skipped some bytes. Fill with skip bytes.
+		for i := len(rfb.clientBuffer); i < offset; i++ {
+			rfb.clientBuffer = append(rfb.clientBuffer, 111)
+		}
+		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
 	} else {
-		log.Fatalf("sequence mismatch: only have 0x%02x client bytes; about to receive offset 0x%02x", len(rfb.clientBuffer), offset)
+		log.Fatalf("sequence mismatch: already have 0x%02x client bytes; about to receive offset 0x%02x", len(rfb.clientBuffer), offset)
 	}
 	return nil
 }
@@ -136,8 +142,15 @@ func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
 	if offset == len(rfb.serverBuffer) {
 		// Simple case: in-order, contiguous packet delivery
 		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
+	} else if offset > len(rfb.serverBuffer) {
+		// We've skipped some bytes. Fill with skip bytes
+		for i := len(rfb.serverBuffer); i < offset; i++ {
+			rfb.serverBuffer = append(rfb.serverBuffer, 111)
+		}
+		rfb.serverBuffer = append(rfb.serverBuffer, make([]byte, offset - len(rfb.serverBuffer))...)
+		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
 	} else {
-		log.Fatalf("sequence mismatch: only have 0x%02x server bytes; about to receive offset 0x%02x", len(rfb.serverBuffer), offset)
+		log.Fatalf("sequence mismatch: already have 0x%02x server bytes; about to receive offset 0x%02x", len(rfb.serverBuffer), offset)
 	}
 	return nil
 }
@@ -269,6 +282,9 @@ func (rfb *RFB) readClientBytes() error {
 		} else if messageType == 6 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
 			rfb.nextC(len(rfb.clientBuffer))
+		} else if messageType == 111 {
+			// Ignore this byte
+			rfb.nextC(1)
 		} else {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown client packet type %d - ignoring all %d bytes</div>\n", messageType, len(rfb.clientBuffer))
 			rfb.nextC(len(rfb.clientBuffer))
@@ -290,6 +306,9 @@ func (rfb *RFB) readServerBytes() error {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: Bell</div>\n")
 		} else if messageType == 3 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ServerCutText</div>\n")
+		} else if messageType == 111 {
+			// Ignore this byte
+			offset = 1
 		} else {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverOffset, len(rfb.serverBuffer[rfb.serverOffset:]))
 		}
@@ -350,8 +369,7 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image, enc
 	w := rInt(buf[4:6])
 	h := rInt(buf[6:8])
 	enctype = int32(uint32(rInt(buf[8:12])))
-	// log.Printf("next rect is a %dx%d rectangle at position %d,%d", w, h, x, y)
-	// log.Printf("encoding type: %02x (%d)", enctype, enctype)
+	// log.Printf("next rect is a %dx%d rectangle at position %d,%d enctype %02x (%d)", w, h, x, y, enctype, enctype)
 
 	rv := image.NewRGBA(image.Rect(x, y, x+w, y+h))
 
