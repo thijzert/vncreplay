@@ -295,7 +295,7 @@ func (rfb *RFB) readClientBytes() error {
 			bm := rInt(buf[1:2])
 			x := rInt(buf[2:4])
 			y := rInt(buf[4:6])
-			fmt.Fprintf(rfb.htmlOut, "<div>Move pointer to %d,%d with buttons %x</div>\n", x, y, bm)
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"pointerupdate\" data-x=\"%d\" data-y=\"%d\" data-bm=\"%d\"></div>\n", x, y, bm)
 			fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'pointerupdate', { x: %d, y: %d, lmb: %d, rmb: %d, mmb: %d, su: %d, sd: %d } );\n", x, y, bm>>0&0x1, bm>>1&0x1, bm>>2&0x1, bm>>3&0x1, bm>>4&0x1)
 		} else if messageType == 6 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
@@ -333,11 +333,13 @@ func (rfb *RFB) readServerBytes() error {
 			// Ignore this byte
 			rfb.nextS(1)
 		} else {
-			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverOffset, len(rfb.serverBuffer[rfb.serverOffset:]))
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverOffset, rfb.serverOffset, len(rfb.serverBuffer[rfb.serverOffset:]))
 			rfb.nextS(len(rfb.serverBuffer))
 		}
-		length := rfb.serverOffset - oldOffset
-		log.Printf("Server packet of type %d consumed at index %08x len %d - next packet at %08x", messageType, oldOffset, length, rfb.serverOffset)
+		if messageType != 111 {
+			length := rfb.serverOffset - oldOffset
+			log.Printf("Server packet of type %d consumed at index %08x (%d) len %d - next packet at %08x", messageType, oldOffset, oldOffset, length, rfb.serverOffset)
+		}
 	}
 
 	return nil
@@ -365,9 +367,9 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 	}
 
 	if rectsAdded > 0 {
-		fmt.Fprintf(rfb.htmlOut, `<div>framebuffer update<br /><img id="framebuffer_%08x" src="data:image/png;base64,`, rfb.serverOffset)
+		fmt.Fprintf(rfb.htmlOut, "<div>framebuffer update: <img style=\"max-width: 1.5em;\" id=\"framebuffer_%08x\" src=\"data:image/png;base64,", rfb.serverOffset)
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
-		fmt.Fprintf(rfb.htmlOut, `" /></div>`)
+		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
 
 		fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'framebuffer', { id: 'framebuffer_%08x' } );\n", rfb.serverOffset)
 	}
