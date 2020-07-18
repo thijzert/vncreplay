@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -50,6 +51,7 @@ func main() {
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
 	var serverPort, sourcePort layers.TCPPort = 0, 0
+	var t0 time.Time
 
 	for packet := range packetSource.Packets() {
 		// Get the TCP layer from this packet
@@ -57,20 +59,24 @@ func main() {
 			// Get actual TCP data from this layer
 			tcp, _ := tcpLayer.(*layers.TCP)
 
+			meta := packet.Metadata()
 			if serverPort == 0 && sourcePort == 0 {
 				// Assume the first packet is the first SYN
 				serverPort, sourcePort = tcp.DstPort, tcp.SrcPort
+				t0 = meta.Timestamp
 			}
 
 			if len(tcp.Payload) == 0 {
 				continue
 			}
 
+			tpacket := meta.Timestamp.Sub(t0)
+
 			err = nil
 			if tcp.SrcPort == serverPort {
-				err = rfb.ServerBytes(tcp.Payload)
+				err = rfb.ServerBytes(tpacket, tcp.Seq, tcp.Payload)
 			} else if tcp.SrcPort == sourcePort {
-				err = rfb.ClientBytes(tcp.Payload)
+				err = rfb.ClientBytes(tpacket, tcp.Seq, tcp.Payload)
 			} else {
 				log.Printf("Ignoring extra traffic")
 			}
@@ -81,45 +87,12 @@ func main() {
 	}
 }
 
-type RFBState int
-
-const (
-	StateUninitialised RFBState = iota
-	StateServerVersionSent
-	StateClientVersionSent
-	StateSecurityOffered
-	StateSecurityChosen
-	StateSecurityChallengeSent
-	StateSecurityChallengeAccepted
-	StateSecurityOK
-	StateClientInitSent
-	StateServerInitSent
-	StateClientTalking
-	StateServerTalking
-)
-
-func (s RFBState) String() string {
-	return []string{
-		"uninitialised",
-		"server version sent",
-		"client version sent",
-		"security offered",
-		"security chosen",
-		"security challenge sent",
-		"security challenge accepted",
-		"security ok",
-		"client init sent",
-		"server init sent",
-		"client talking",
-		"server talking",
-	}[int(s)]
-}
-
 type RFB struct {
-	state        RFBState
 	htmlOut      io.WriteCloser
 	clientBuffer []byte
 	serverBuffer []byte
+	clientOffset int
+	serverOffset int
 	width        int
 	height       int
 	pixelFormat  PixelFormat
@@ -128,10 +101,11 @@ type RFB struct {
 
 func NewRFB(out io.WriteCloser) *RFB {
 	var rfb = &RFB{
-		state:        StateUninitialised,
 		htmlOut:      out,
 		clientBuffer: make([]byte, 0, 2000),
 		serverBuffer: make([]byte, 0, 2000),
+		clientOffset: 0,
+		serverOffset: 0,
 	}
 
 	rfb.htmlOut.Write([]byte(`<!DOCTYPE html><html><body>`))
@@ -139,71 +113,112 @@ func NewRFB(out io.WriteCloser) *RFB {
 	return rfb
 }
 
+func (rfb *RFB) ClientBytes(t time.Duration, offset uint32, buf []byte) error {
+	rfb.clientBuffer = append(rfb.clientBuffer, buf...)
+	return nil
+}
+
+func (rfb *RFB) ServerBytes(t time.Duration, offset uint32, buf []byte) error {
+	rfb.serverBuffer = append(rfb.serverBuffer, buf...)
+	return nil
+}
+
 func (rfb *RFB) Close() error {
-	rfb.htmlOut.Write([]byte(`</body></html>`))
+	if err := rfb.consumeHandshake(); err != nil {
+		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>", err)
+		return err
+	}
+
+	fmt.Fprintf(rfb.htmlOut, `<h3>Client events</h3>`)
+	if err := rfb.readClientBytes(); err != nil {
+		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>", err)
+		return err
+	}
+
+	fmt.Fprintf(rfb.htmlOut, `<h3>Server events</h3>`)
+	if err := rfb.readServerBytes(); err != nil {
+		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>", err)
+		return err
+	}
+
+	fmt.Fprintf(rfb.htmlOut, `</body></html>`)
 	return rfb.htmlOut.Close()
 }
 
-func (rfb *RFB) ClientBytes(buf []byte) error {
-	if rfb.state == StateServerTalking {
-		rfb.readServerBytes()
-		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
-		rfb.state = StateClientTalking
-	} else if rfb.state == StateClientTalking {
-		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
-	} else if rfb.state == StateServerVersionSent {
-		rfb.state = StateClientVersionSent
-	} else if rfb.state == StateSecurityOffered {
-		rfb.state = StateSecurityChosen
-	} else if rfb.state == StateSecurityChallengeSent {
-		rfb.state = StateSecurityChallengeAccepted
-	} else if rfb.state == StateSecurityOK {
-		rfb.state = StateClientInitSent
-	} else if rfb.state == StateServerInitSent {
-		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
-		rfb.state = StateClientTalking
+func (rfb *RFB) consumeHandshake() error {
+	// Server version
+	_ = rfb.nextS(12)
+
+	// Client version
+	_ = rfb.nextC(12)
+
+	// Server security types
+	nSecurity := rInt(rfb.nextS(1))
+	_ = rfb.nextS(1 * nSecurity)
+
+	// Client security choice
+	sec := rInt(rfb.nextC(1))
+
+	if sec == 2 {
+		// VNC authentication
+		_ = rfb.nextS(16)
+		_ = rfb.nextC(16)
 	} else {
-		return fmt.Errorf("handshake error: no client bytes expected in state '%s'", rfb.state)
+		return fmt.Errorf("authentication type %d not implemented", sec)
 	}
+
+	// Server init
+	securityResult := rInt(rfb.nextS(4))
+	if securityResult !=0 {
+		return fmt.Errorf("handshake failed: authentication failed: error %d", securityResult)
+	}
+
+	// Client init
+	cInit := rfb.nextC(1)
+	if len(cInit) != 1 {
+		return fmt.Errorf("handshake failed: client rejected")
+	}
+
+	// Server init
+	sInit := rfb.nextS(24)
+	if len(sInit) != 24 {
+		return fmt.Errorf("handshake failed: server rejected")
+	}
+	rfb.width = rInt(sInit[0:2])
+	rfb.height = rInt(sInit[2:4])
+	rfb.pixelFormat = ParsePixelFormat(sInit[4:20])
+	fmt.Fprintf(rfb.htmlOut, "<div>Remote display %dx%d, %s</div>\n", rfb.width, rfb.height, rfb.pixelFormat)
+	nlen := rInt(sInit[20:24])
+	if nlen > 0 {
+		rfb.name = string(rfb.nextS(nlen))
+		fmt.Fprintf(rfb.htmlOut, "<div>Server name: %s</div>\n", rfb.name)
+	}
+
 	return nil
 }
 
-func (rfb *RFB) ServerBytes(buf []byte) error {
-	if rfb.state == StateServerTalking {
-		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
-	} else if rfb.state == StateClientTalking {
-		rfb.readClientBytes()
-		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
-		rfb.state = StateServerTalking
-	} else if rfb.state == StateUninitialised {
-		rfb.state = StateServerVersionSent
-	} else if rfb.state == StateClientVersionSent {
-		rfb.state = StateSecurityOffered
-	} else if rfb.state == StateSecurityChosen {
-		rfb.state = StateSecurityChallengeSent
-	} else if rfb.state == StateSecurityChallengeAccepted {
-		rfb.state = StateSecurityOK
-	} else if rfb.state == StateClientInitSent {
-		rfb.state = StateServerInitSent
-		rfb.width = rInt(buf[0:2])
-		rfb.height = rInt(buf[2:4])
-		rfb.pixelFormat = ParsePixelFormat(buf[4:20])
-		fmt.Fprintf(rfb.htmlOut, "<div>Remote display %dx%d, %s</div>\n", rfb.width, rfb.height, rfb.pixelFormat)
-		nlen := rInt(buf[20:24])
-		if nlen > 0 {
-			rfb.name = string(buf[24 : 24+nlen])
-			fmt.Fprintf(rfb.htmlOut, "<div>Server name: %s</div>\n", rfb.name)
-		}
-	} else if rfb.state == StateServerInitSent {
-		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
-		rfb.state = StateServerTalking
-	} else {
-		return fmt.Errorf("handshake error: no server bytes expected in state '%s'", rfb.state)
+func (rfb *RFB) nextS(l int) []byte {
+	start := rfb.serverOffset
+	if (start+l) > len(rfb.serverBuffer) {
+		l = len(rfb.serverBuffer) - rfb.serverOffset
 	}
-	return nil
+
+	rfb.serverOffset += l
+	return rfb.serverBuffer[start:start+l]
 }
 
-func (rfb *RFB) readClientBytes() {
+func (rfb *RFB) nextC(l int) []byte {
+	start := rfb.clientOffset
+	if (start+l) > len(rfb.clientBuffer) {
+		l = len(rfb.clientBuffer) - rfb.clientOffset
+	}
+
+	rfb.clientOffset += l
+	return rfb.clientBuffer[start:start+l]
+}
+
+func (rfb *RFB) readClientBytes() error {
+	rfb.clientBuffer = rfb.clientBuffer[rfb.clientOffset:]
 	offset := 0
 	for len(rfb.clientBuffer) > 0 {
 		messageType := rfb.clientBuffer[0]
@@ -239,9 +254,12 @@ func (rfb *RFB) readClientBytes() {
 		}
 		rfb.clientBuffer = rfb.clientBuffer[offset:]
 	}
+
+	return nil
 }
 
-func (rfb *RFB) readServerBytes() {
+func (rfb *RFB) readServerBytes() error {
+	rfb.serverBuffer = rfb.serverBuffer[rfb.serverOffset:]
 	offset := 0
 	for len(rfb.serverBuffer) > 0 {
 		messageType := rfb.serverBuffer[0]
@@ -262,6 +280,8 @@ func (rfb *RFB) readServerBytes() {
 		}
 		rfb.serverBuffer = rfb.serverBuffer[offset:]
 	}
+
+	return nil
 }
 
 func (rfb *RFB) decodeFrameBufferUpdate() int {
