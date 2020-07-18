@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -98,6 +99,7 @@ func main() {
 
 type RFB struct {
 	htmlOut      io.WriteCloser
+	jsOut        *bytes.Buffer
 	clientBuffer []byte
 	serverBuffer []byte
 	clientOffset int
@@ -109,15 +111,20 @@ type RFB struct {
 }
 
 func NewRFB(out io.WriteCloser) *RFB {
+	var jsout bytes.Buffer
 	var rfb = &RFB{
 		htmlOut:      out,
+		jsOut:        &jsout,
 		clientBuffer: make([]byte, 0, 2000),
 		serverBuffer: make([]byte, 0, 2000),
 		clientOffset: 0,
 		serverOffset: 0,
 	}
 
-	rfb.htmlOut.Write([]byte(`<!DOCTYPE html><html><body>`))
+	fmt.Fprintf(rfb.htmlOut, "<!DOCTYPE html>\n<html>\n")
+	fmt.Fprintf(rfb.htmlOut, "<head><meta charset=\"UTF-8\"></head>\n")
+	fmt.Fprintf(rfb.htmlOut, "<body>\n")
+	fmt.Fprintf(rfb.htmlOut, "<div id=\"remote-framebuffer-protocol\"></div>\n")
 
 	return rfb
 }
@@ -147,7 +154,7 @@ func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
 		for i := len(rfb.serverBuffer); i < offset; i++ {
 			rfb.serverBuffer = append(rfb.serverBuffer, 111)
 		}
-		rfb.serverBuffer = append(rfb.serverBuffer, make([]byte, offset - len(rfb.serverBuffer))...)
+		rfb.serverBuffer = append(rfb.serverBuffer, make([]byte, offset-len(rfb.serverBuffer))...)
 		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
 	} else {
 		log.Fatalf("sequence mismatch: already have 0x%02x server bytes; about to receive offset 0x%02x", len(rfb.serverBuffer), offset)
@@ -157,21 +164,28 @@ func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
 
 func (rfb *RFB) Close() error {
 	if err := rfb.consumeHandshake(); err != nil {
-		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>", err)
+		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
 		return err
 	}
 
 	fmt.Fprintf(rfb.htmlOut, `<h3>Client events</h3>`)
 	if err := rfb.readClientBytes(); err != nil {
-		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>", err)
+		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
 		return err
 	}
 
 	fmt.Fprintf(rfb.htmlOut, `<h3>Server events</h3>`)
 	if err := rfb.readServerBytes(); err != nil {
-		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>", err)
+		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
 		return err
 	}
+
+	fmt.Fprintf(rfb.jsOut, "\n\nrfb.Render( document.getElementById('remote-framebuffer-protocol') );\n\n\n")
+
+	fmt.Fprintf(rfb.htmlOut, "<script src=\"player.js\"></script>")
+	fmt.Fprintf(rfb.htmlOut, "<script>")
+	rfb.jsOut.WriteTo(rfb.htmlOut)
+	fmt.Fprintf(rfb.htmlOut, "</script>")
 
 	fmt.Fprintf(rfb.htmlOut, `</body></html>`)
 	log.Printf("Replay complete.")
@@ -221,6 +235,7 @@ func (rfb *RFB) consumeHandshake() error {
 	rfb.height = rInt(sInit[2:4])
 	rfb.pixelFormat = ParsePixelFormat(sInit[4:20])
 	fmt.Fprintf(rfb.htmlOut, "<div>Remote display %dx%d, %s</div>\n", rfb.width, rfb.height, rfb.pixelFormat)
+	fmt.Fprintf(rfb.jsOut, "\n\nrfb = new RFB( %d, %d );\n\n", rfb.width, rfb.height)
 	nlen := rInt(sInit[20:24])
 	if nlen > 0 {
 		rfb.name = string(rfb.nextS(nlen))
@@ -263,22 +278,25 @@ func (rfb *RFB) readClientBytes() error {
 			nEncs := rInt(rfb.nextC(2))
 			_ = rfb.nextC(4 * nEncs)
 		} else if messageType == 3 {
-			buf := rfb.nextC(10)
-			fmt.Fprintf(rfb.htmlOut, "<div>Framebuffer Update Request for a %dx%dpx area at %dx%d</div>\n", rInt(buf[2:4]), rInt(buf[4:6]), rInt(buf[6:8]), rInt(buf[8:10]))
+			_ = rfb.nextC(10)
+			// fmt.Fprintf(rfb.htmlOut, "<div>Framebuffer Update Request for a %dx%dpx area at %dx%d</div>\n", rInt(buf[2:4]), rInt(buf[4:6]), rInt(buf[6:8]), rInt(buf[8:10]))
 		} else if messageType == 4 {
 			buf := rfb.nextC(8)
 			key := rInt(buf[4:8])
 			if rInt(buf[1:2]) == 1 {
 				fmt.Fprintf(rfb.htmlOut, "<div>Press key <tt>%c</tt> (0x%2x)</div>\n", key, key)
+				fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'keypress', { key: 0x%02x } );\n", key)
 			} else {
 				fmt.Fprintf(rfb.htmlOut, "<div>release key <tt>%c</tt> (0x%2x)</div>\n", key, key)
+				fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'keyrelease', { key: 0x%02x } );\n", key)
 			}
 		} else if messageType == 5 {
 			buf := rfb.nextC(6)
 			bm := rInt(buf[1:2])
 			x := rInt(buf[2:4])
 			y := rInt(buf[4:6])
-			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">Move pointer to %d,%d with buttons %x</div>\n", x, y, bm)
+			fmt.Fprintf(rfb.htmlOut, "<div>Move pointer to %d,%d with buttons %x</div>\n", x, y, bm)
+			fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'pointerupdate', { x: %d, y: %d, lmb: %d, rmb: %d, mmb: %d, su: %d, sd: %d } );\n", x, y, bm>>0&0x1, bm>>1&0x1, bm>>2&0x1, bm>>3&0x1, bm>>4&0x1)
 		} else if messageType == 6 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
 			rfb.nextC(len(rfb.clientBuffer))
@@ -344,9 +362,11 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 	}
 
 	if rectsAdded > 0 {
-		rfb.htmlOut.Write([]byte(`<div>framebuffer update<br /><img src="data:image/png;base64,`))
+		fmt.Fprintf(rfb.htmlOut, `<div>framebuffer update<br /><img id="framebuffer_%08x" src="data:image/png;base64,`, rfb.serverOffset)
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
-		rfb.htmlOut.Write([]byte(`" /></div>`))
+		fmt.Fprintf(rfb.htmlOut, `" /></div>`)
+
+		fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'framebuffer', { id: 'framebuffer_%08x' } );\n", rfb.serverOffset)
 	}
 
 	return offset
@@ -355,11 +375,14 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 func (rfb *RFB) handleCursorUpdate(img image.Image) {
 	if img.Bounds().Dx() > 0 && img.Bounds().Dy() > 0 {
 		min := img.Bounds().Min
-		fmt.Fprintf(rfb.htmlOut, `<div>Draw cursor like this: <img data-x="%d" data-y="%d" src="data:image/png;base64,`, min.X, min.Y)
+		fmt.Fprintf(rfb.htmlOut, `<div>Draw cursor like this: <img id="pointer_%08x" src="data:image/png;base64,`, rfb.serverOffset)
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), img)
-		fmt.Fprintf(rfb.htmlOut, `" /></div>`)
+		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
+
+		fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'pointer-skin', { id: 'pointer_%08x', x: %d, y: %d } );\n", rfb.serverOffset, min.X, min.Y)
 	} else {
-		fmt.Fprintf(rfb.htmlOut, `<div>Use the default cursor from here.</div>`)
+		fmt.Fprintf(rfb.htmlOut, "<div>Use the default cursor from here.</div>\n")
+		fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'pointer-skin', { id: null, default: 1 } );\n")
 	}
 }
 
