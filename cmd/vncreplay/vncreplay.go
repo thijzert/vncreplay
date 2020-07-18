@@ -169,7 +169,7 @@ func (rfb *RFB) consumeHandshake() error {
 
 	// Server init
 	securityResult := rInt(rfb.nextS(4))
-	if securityResult !=0 {
+	if securityResult != 0 {
 		return fmt.Errorf("handshake failed: authentication failed: error %d", securityResult)
 	}
 
@@ -199,71 +199,69 @@ func (rfb *RFB) consumeHandshake() error {
 
 func (rfb *RFB) nextS(l int) []byte {
 	start := rfb.serverOffset
-	if (start+l) > len(rfb.serverBuffer) {
+	if (start + l) > len(rfb.serverBuffer) {
 		l = len(rfb.serverBuffer) - rfb.serverOffset
 	}
 
 	rfb.serverOffset += l
-	return rfb.serverBuffer[start:start+l]
+	return rfb.serverBuffer[start : start+l]
 }
 
 func (rfb *RFB) nextC(l int) []byte {
 	start := rfb.clientOffset
-	if (start+l) > len(rfb.clientBuffer) {
+	if (start + l) > len(rfb.clientBuffer) {
 		l = len(rfb.clientBuffer) - rfb.clientOffset
 	}
 
 	rfb.clientOffset += l
-	return rfb.clientBuffer[start:start+l]
+	return rfb.clientBuffer[start : start+l]
 }
 
 func (rfb *RFB) readClientBytes() error {
-	rfb.clientBuffer = rfb.clientBuffer[rfb.clientOffset:]
-	offset := 0
-	for len(rfb.clientBuffer) > 0 {
-		messageType := rfb.clientBuffer[0]
-		offset = len(rfb.clientBuffer)
+	for len(rfb.clientBuffer) > rfb.clientOffset {
+		messageType := rfb.clientBuffer[rfb.clientOffset]
 		if messageType == 0 {
-			rfb.pixelFormat = ParsePixelFormat(rfb.clientBuffer[4:20])
+			buf := rfb.nextC(20)
+			rfb.pixelFormat = ParsePixelFormat(buf[4:20])
 			fmt.Fprintf(rfb.htmlOut, "<div>Pixel format set to: %s</div>\n", rfb.pixelFormat)
-			offset = 20
 		} else if messageType == 2 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: SetEncodings</div>\n")
-			offset = 4 + rInt(rfb.clientBuffer[2:4])*4
+			_ = rfb.nextC(2)
+			nEncs := rInt(rfb.nextC(2))
+			_ = rfb.nextC(4 * nEncs)
 		} else if messageType == 3 {
-			offset = 10
-			fmt.Fprintf(rfb.htmlOut, "<div>Framebuffer Update Request for a %dx%dpx area at %dx%d</div>\n", rInt(rfb.clientBuffer[2:4]), rInt(rfb.clientBuffer[4:6]), rInt(rfb.clientBuffer[6:8]), rInt(rfb.clientBuffer[8:10]))
+			buf := rfb.nextC(10)
+			fmt.Fprintf(rfb.htmlOut, "<div>Framebuffer Update Request for a %dx%dpx area at %dx%d</div>\n", rInt(buf[2:4]), rInt(buf[4:6]), rInt(buf[6:8]), rInt(buf[8:10]))
 		} else if messageType == 4 {
-			key := rInt(rfb.clientBuffer[4:8])
-			if rInt(rfb.clientBuffer[1:2]) == 1 {
+			buf := rfb.nextC(8)
+			key := rInt(buf[4:8])
+			if rInt(buf[1:2]) == 1 {
 				fmt.Fprintf(rfb.htmlOut, "<div>Press key <tt>%c</tt> (0x%2x)</div>\n", key, key)
 			} else {
 				fmt.Fprintf(rfb.htmlOut, "<div>release key <tt>%c</tt> (0x%2x)</div>\n", key, key)
 			}
-			offset = 8
 		} else if messageType == 5 {
-			bm := rInt(rfb.clientBuffer[1:2])
-			x := rInt(rfb.clientBuffer[2:4])
-			y := rInt(rfb.clientBuffer[4:6])
+			buf := rfb.nextC(6)
+			bm := rInt(buf[1:2])
+			x := rInt(buf[2:4])
+			y := rInt(buf[4:6])
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">Move pointer to %d,%d with buttons %x</div>\n", x, y, bm)
-			offset = 6
 		} else if messageType == 6 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
+			rfb.nextC(len(rfb.clientBuffer))
 		} else {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown client packet type %d - ignoring all %d bytes</div>\n", messageType, len(rfb.clientBuffer))
+			rfb.nextC(len(rfb.clientBuffer))
 		}
-		rfb.clientBuffer = rfb.clientBuffer[offset:]
 	}
 
 	return nil
 }
 
 func (rfb *RFB) readServerBytes() error {
-	rfb.serverBuffer = rfb.serverBuffer[rfb.serverOffset:]
-	offset := 0
-	for len(rfb.serverBuffer) > 0 {
-		messageType := rfb.serverBuffer[0]
-		offset = len(rfb.serverBuffer)
+	for len(rfb.serverBuffer) > rfb.serverOffset {
+		messageType := rfb.serverBuffer[rfb.serverOffset]
+		offset := len(rfb.serverBuffer[rfb.serverOffset:])
 		if messageType == 0 {
 			offset = rfb.decodeFrameBufferUpdate()
 		} else if messageType == 1 {
@@ -273,12 +271,13 @@ func (rfb *RFB) readServerBytes() error {
 		} else if messageType == 3 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ServerCutText</div>\n")
 		} else {
-			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d - ignoring all %d bytes</div>\n", messageType, len(rfb.serverBuffer))
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverOffset, len(rfb.serverBuffer[rfb.serverOffset:]))
 		}
-		if offset > len(rfb.serverBuffer) {
-			offset = len(rfb.serverBuffer)
+		if offset > len(rfb.serverBuffer[rfb.serverOffset:]) {
+			offset = len(rfb.serverBuffer[rfb.serverOffset:])
 		}
-		rfb.serverBuffer = rfb.serverBuffer[offset:]
+		log.Printf("Server packet of type %d consumed at index %08x len %d - next packet at %08x", messageType, rfb.serverOffset, offset, rfb.serverOffset+offset)
+		rfb.serverOffset += offset
 	}
 
 	return nil
@@ -287,13 +286,13 @@ func (rfb *RFB) readServerBytes() error {
 func (rfb *RFB) decodeFrameBufferUpdate() int {
 	targetImage := image.NewRGBA(image.Rect(0, 0, rfb.width, rfb.height))
 
-	nRects := rInt(rfb.serverBuffer[2:4])
+	nRects := rInt(rfb.serverBuffer[rfb.serverOffset+2 : rfb.serverOffset+4])
 	rectsAdded := 0
-	log.Printf("Number of rects: %d", nRects)
+	// log.Printf("Number of rects: %d", nRects)
 
 	offset := 4
 	for i := 0; i < nRects; i++ {
-		n, img, enctype := rfb.pixelFormat.nextRect(rfb.serverBuffer[offset:])
+		n, img, enctype := rfb.pixelFormat.nextRect(rfb.serverBuffer[rfb.serverOffset+offset:])
 		offset += n
 
 		if enctype == -239 {
@@ -331,8 +330,8 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image, enc
 	w := rInt(buf[4:6])
 	h := rInt(buf[6:8])
 	enctype = int32(uint32(rInt(buf[8:12])))
-	log.Printf("next rect is a %dx%d rectangle at position %d,%d", w, h, x, y)
-	log.Printf("encoding type: %02x (%d)", enctype, enctype)
+	// log.Printf("next rect is a %dx%d rectangle at position %d,%d", w, h, x, y)
+	// log.Printf("encoding type: %02x (%d)", enctype, enctype)
 
 	rv := image.NewRGBA(image.Rect(x, y, x+w, y+h))
 
@@ -349,7 +348,7 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image, enc
 		for j := 0; j < h; j++ {
 			for i := 0; i < w; i++ {
 				if offset >= len(buf) {
-					log.Printf("Warning: image truncated")
+					// log.Printf("Warning: image truncated")
 					return offset, rv, enctype
 				}
 
@@ -364,7 +363,6 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image, enc
 					aByte := j*lineLength + i/8
 					aBit := i & 0x7
 					if len(buf) > rectEnd+aByte {
-						bitmaskOffset = aByte
 						if (buf[rectEnd+aByte]<<aBit)&0x80 == 0 {
 							c.A = 0
 						}
