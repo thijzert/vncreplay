@@ -19,8 +19,8 @@ class RFB {
 		this.canvas.height = this.height;
 		this.canvas.width = this.width;
 
-		this.canvas.style.maxHeight = "60vh";
-		this.canvas.style.maxWidth = "60vw";
+		this.canvas.style.maxHeight = "80vh";
+		this.canvas.style.maxWidth = "80vw";
 
 		this.ctx = this.canvas.getContext("2d");
 
@@ -72,7 +72,7 @@ class RFB {
 	}
 
 	applyFramebuffer(fbdata) {
-		let img = document.getElementById(fbdata.id);
+		let img = document.getElementById(fbdata.Id);
 		if ( img ) {
 			this.ctx.drawImage(img, 0, 0);
 		}

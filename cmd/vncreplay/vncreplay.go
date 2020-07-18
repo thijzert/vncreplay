@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image"
@@ -265,6 +266,23 @@ func (rfb *RFB) nextC(l int) []byte {
 	return rfb.clientBuffer[start : start+l]
 }
 
+func (rfb *RFB) pushEvent(eventType string, eventData interface{}) {
+	var b bytes.Buffer
+	var e = json.NewEncoder(&b)
+	e.Encode([]interface{}{eventType, eventData})
+	s := b.Bytes()
+
+	fmt.Fprintf(rfb.jsOut, "rfb.PushEvent(%s);\n", s[1:len(s)-2])
+}
+
+type keypress struct {
+	Key int
+}
+type pointerupdate struct {
+	X, Y                  int
+	Lmb, Rmb, Mmb, Su, Sd int
+}
+
 func (rfb *RFB) readClientBytes() error {
 	for len(rfb.clientBuffer) > rfb.clientOffset {
 		messageType := rfb.clientBuffer[rfb.clientOffset]
@@ -284,19 +302,30 @@ func (rfb *RFB) readClientBytes() error {
 			buf := rfb.nextC(8)
 			key := rInt(buf[4:8])
 			if rInt(buf[1:2]) == 1 {
-				fmt.Fprintf(rfb.htmlOut, "<div>Press key <tt>%c</tt> (0x%2x)</div>\n", key, key)
-				fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'keypress', { key: 0x%02x } );\n", key)
+				if key < 0x80 {
+					fmt.Fprintf(rfb.htmlOut, "<div>Press key 0x%2x (<tt>%c</tt>)</div>\n", key, key)
+				} else {
+					fmt.Fprintf(rfb.htmlOut, "<div>Press key 0x%2x</div>\n", key)
+				}
+				rfb.pushEvent("keypress", keypress{Key: key})
 			} else {
 				fmt.Fprintf(rfb.htmlOut, "<div>release key <tt>%c</tt> (0x%2x)</div>\n", key, key)
-				fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'keyrelease', { key: 0x%02x } );\n", key)
+				rfb.pushEvent("keypress", keypress{Key: key})
 			}
 		} else if messageType == 5 {
 			buf := rfb.nextC(6)
 			bm := rInt(buf[1:2])
-			x := rInt(buf[2:4])
-			y := rInt(buf[4:6])
-			fmt.Fprintf(rfb.htmlOut, "<div class=\"pointerupdate\" data-x=\"%d\" data-y=\"%d\" data-bm=\"%d\"></div>\n", x, y, bm)
-			fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'pointerupdate', { x: %d, y: %d, lmb: %d, rmb: %d, mmb: %d, su: %d, sd: %d } );\n", x, y, bm>>0&0x1, bm>>1&0x1, bm>>2&0x1, bm>>3&0x1, bm>>4&0x1)
+			evt := pointerupdate{
+				X:   rInt(buf[2:4]),
+				Y:   rInt(buf[4:6]),
+				Lmb: bm >> 0 & 0x1,
+				Rmb: bm >> 1 & 0x1,
+				Mmb: bm >> 2 & 0x1,
+				Su:  bm >> 3 & 0x1,
+				Sd:  bm >> 4 & 0x1,
+			}
+			fmt.Fprintf(rfb.htmlOut, "<div class=\"pointerupdate\" data-x=\"%d\" data-y=\"%d\" data-bm=\"%d\"></div>\n", evt.X, evt.Y, bm)
+			rfb.pushEvent("pointerupdate", evt)
 		} else if messageType == 6 {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
 			rfb.nextC(len(rfb.clientBuffer))
@@ -310,6 +339,16 @@ func (rfb *RFB) readClientBytes() error {
 	}
 
 	return nil
+}
+
+type framebuffer struct {
+	Id string
+}
+
+type pointerSkin struct {
+	Id      string
+	Default int
+	X, Y    int
 }
 
 func (rfb *RFB) readServerBytes() error {
@@ -371,7 +410,7 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
 		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
 
-		fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'framebuffer', { id: 'framebuffer_%08x' } );\n", rfb.serverOffset)
+		rfb.pushEvent("framebuffer", framebuffer{Id: fmt.Sprintf("framebuffer_%08x", rfb.serverOffset)})
 	}
 
 	return offset
@@ -384,10 +423,14 @@ func (rfb *RFB) handleCursorUpdate(img image.Image) {
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), img)
 		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
 
-		fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'pointer-skin', { id: 'pointer_%08x', x: %d, y: %d } );\n", rfb.serverOffset, min.X, min.Y)
+		rfb.pushEvent("pointer-skin", pointerSkin{
+			Id: fmt.Sprintf("pointer_%08x", rfb.serverOffset),
+			X:  min.X,
+			Y:  min.Y,
+		})
 	} else {
 		fmt.Fprintf(rfb.htmlOut, "<div>Use the default cursor from here.</div>\n")
-		fmt.Fprintf(rfb.jsOut, "rfb.PushEvent( 'pointer-skin', { id: null, default: 1 } );\n")
+		rfb.pushEvent("pointer-skin", pointerSkin{Default: 1})
 	}
 }
 
