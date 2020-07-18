@@ -342,6 +342,10 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image, enc
 		offset := 12
 		rectEnd := 12 + h*w*ppf.BytesPerPixel()
 		bitmaskOffset := 0
+		if enctype == -239 {
+			lineLength := (w + 7) / 8
+			bitmaskOffset = h * lineLength
+		}
 		for j := 0; j < h; j++ {
 			for i := 0; i < w; i++ {
 				if offset >= len(buf) {
