@@ -257,6 +257,9 @@ func (rfb *RFB) readServerBytes() {
 		} else {
 			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d - ignoring all %d bytes</div>\n", messageType, len(rfb.serverBuffer))
 		}
+		if offset > len(rfb.serverBuffer) {
+			offset = len(rfb.serverBuffer)
+		}
 		rfb.serverBuffer = rfb.serverBuffer[offset:]
 	}
 }
@@ -265,32 +268,49 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 	targetImage := image.NewRGBA(image.Rect(0, 0, rfb.width, rfb.height))
 
 	nRects := rInt(rfb.serverBuffer[2:4])
+	rectsAdded := 0
 	log.Printf("Number of rects: %d", nRects)
 
 	offset := 4
 	for i := 0; i < nRects; i++ {
-		n, img := rfb.pixelFormat.nextRect(rfb.serverBuffer[offset:])
+		n, img, enctype := rfb.pixelFormat.nextRect(rfb.serverBuffer[offset:])
 		offset += n
 
-		if img != nil {
+		if enctype == -239 {
+			rfb.handleCursorUpdate(img)
+		} else if img != nil {
 			b := img.Bounds()
 			draw.Draw(targetImage, b, img, b.Min, draw.Over)
+			rectsAdded++
 		}
 	}
 
-	rfb.htmlOut.Write([]byte(`<div>framebuffer update<br /><img src="data:image/png;base64,`))
-	png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
-	rfb.htmlOut.Write([]byte(`" /></div>`))
+	if rectsAdded > 0 {
+		rfb.htmlOut.Write([]byte(`<div>framebuffer update<br /><img src="data:image/png;base64,`))
+		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
+		rfb.htmlOut.Write([]byte(`" /></div>`))
+	}
 
 	return offset
 }
 
-func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image) {
+func (rfb *RFB) handleCursorUpdate(img image.Image) {
+	if img.Bounds().Dx() > 0 && img.Bounds().Dy() > 0 {
+		min := img.Bounds().Min
+		fmt.Fprintf(rfb.htmlOut, `<div>Draw cursor like this: <img data-x="%d" data-y="%d" src="data:image/png;base64,`, min.X, min.Y)
+		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), img)
+		fmt.Fprintf(rfb.htmlOut, `" /></div>`)
+	} else {
+		fmt.Fprintf(rfb.htmlOut, `<div>Use the default cursor from here.</div>`)
+	}
+}
+
+func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image, enctype int32) {
 	x := rInt(buf[0:2])
 	y := rInt(buf[2:4])
 	w := rInt(buf[4:6])
 	h := rInt(buf[6:8])
-	enctype := int32(uint32(rInt(buf[8:12])))
+	enctype = int32(uint32(rInt(buf[8:12])))
 	log.Printf("next rect is a %dx%d rectangle at position %d,%d", w, h, x, y)
 	log.Printf("encoding type: %02x (%d)", enctype, enctype)
 
@@ -300,26 +320,44 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image) {
 		// Raw encoding
 
 		offset := 12
+		rectEnd := 12 + h*w*ppf.BytesPerPixel()
+		bitmaskOffset := 0
 		for j := 0; j < h; j++ {
 			for i := 0; i < w; i++ {
 				if offset >= len(buf) {
 					log.Printf("Warning: image truncated")
-					return offset, rv
+					return offset, rv, enctype
 				}
 
 				n, c := ppf.ReadPixel(buf[offset:])
 				offset += n
+
+				if enctype == -239 {
+					// The cursor update pseudoformat also consists of a bitmask after
+					// the pixel colours, corresponding to the alpha value of each pixel.
+
+					lineLength := (w + 7) / 8
+					aByte := j*lineLength + i/8
+					aBit := i & 0x7
+					if len(buf) > rectEnd+aByte {
+						bitmaskOffset = aByte
+						if (buf[rectEnd+aByte]<<aBit)&0x80 == 0 {
+							c.A = 0
+						}
+					}
+				}
+
 				rv.Set(x+i, y+j, c)
 			}
 		}
 
-		return offset, rv
+		return offset + bitmaskOffset, rv, enctype
 	} else {
 		log.Printf("Unknown encoding type - ignoring whole buffer")
-		return len(buf), nil
+		return len(buf), nil, enctype
 	}
 
-	return 12, nil
+	return 12, nil, 0
 }
 
 func rInt(b []byte) int {
@@ -362,7 +400,7 @@ func (p PixelFormat) BytesPerPixel() int {
 	return (p.Bits + 7) / 8
 }
 
-func (p PixelFormat) ReadPixel(buf []byte) (int, color.Color) {
+func (p PixelFormat) ReadPixel(buf []byte) (int, color.RGBA) {
 	l := (p.Bits + 7) / 8
 	var pixel uint = 0
 	if l == 1 {
