@@ -51,6 +51,7 @@ func main() {
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
 	var serverPort, sourcePort layers.TCPPort = 0, 0
+	var serverSeq, clientSeq uint32 = 0, 0
 	var t0 time.Time
 
 	for packet := range packetSource.Packets() {
@@ -66,6 +67,14 @@ func main() {
 				t0 = meta.Timestamp
 			}
 
+			if tcp.SYN {
+				if tcp.SrcPort == serverPort {
+					serverSeq = tcp.Seq + 1
+				} else if tcp.SrcPort == sourcePort {
+					clientSeq = tcp.Seq + 1
+				}
+			}
+
 			if len(tcp.Payload) == 0 {
 				continue
 			}
@@ -74,9 +83,9 @@ func main() {
 
 			err = nil
 			if tcp.SrcPort == serverPort {
-				err = rfb.ServerBytes(tpacket, tcp.Seq, tcp.Payload)
+				err = rfb.ServerBytes(tpacket, int(tcp.Seq-serverSeq), tcp.Payload)
 			} else if tcp.SrcPort == sourcePort {
-				err = rfb.ClientBytes(tpacket, tcp.Seq, tcp.Payload)
+				err = rfb.ClientBytes(tpacket, int(tcp.Seq-clientSeq), tcp.Payload)
 			} else {
 				log.Printf("Ignoring extra traffic")
 			}
@@ -113,13 +122,23 @@ func NewRFB(out io.WriteCloser) *RFB {
 	return rfb
 }
 
-func (rfb *RFB) ClientBytes(t time.Duration, offset uint32, buf []byte) error {
-	rfb.clientBuffer = append(rfb.clientBuffer, buf...)
+func (rfb *RFB) ClientBytes(t time.Duration, offset int, buf []byte) error {
+	if offset == len(rfb.clientBuffer) {
+		// Simple case: in-order, contiguous packet delivery
+		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
+	} else {
+		log.Fatalf("sequence mismatch: only have 0x%02x client bytes; about to receive offset 0x%02x", len(rfb.clientBuffer), offset)
+	}
 	return nil
 }
 
-func (rfb *RFB) ServerBytes(t time.Duration, offset uint32, buf []byte) error {
-	rfb.serverBuffer = append(rfb.serverBuffer, buf...)
+func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
+	if offset == len(rfb.serverBuffer) {
+		// Simple case: in-order, contiguous packet delivery
+		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
+	} else {
+		log.Fatalf("sequence mismatch: only have 0x%02x server bytes; about to receive offset 0x%02x", len(rfb.serverBuffer), offset)
+	}
 	return nil
 }
 
@@ -142,6 +161,7 @@ func (rfb *RFB) Close() error {
 	}
 
 	fmt.Fprintf(rfb.htmlOut, `</body></html>`)
+	log.Printf("Replay complete.")
 	return rfb.htmlOut.Close()
 }
 
