@@ -19,34 +19,40 @@ type pointerSkin struct {
 	X, Y    int
 }
 
-func (rfb *RFB) readServerBytes() error {
+func (rfb *RFB) readAllServerBytes() error {
 	for len(rfb.serverBuffer) > rfb.serverOffset {
-		oldOffset := rfb.serverOffset
-		messageType := rfb.serverBuffer[rfb.serverOffset]
-		if messageType == 0 {
-			rfb.nextS(rfb.decodeFrameBufferUpdate())
-		} else if messageType == 1 {
-			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: SetColourMapEntries</div>\n")
-			rfb.nextS(len(rfb.serverBuffer))
-		} else if messageType == 2 {
-			fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: Bell</div>\n")
-			rfb.nextS(len(rfb.serverBuffer))
-		} else if messageType == 3 {
-			buf := rfb.nextS(8)
-			cutLen := rInt(buf[4:])
-			cutText := rfb.nextS(cutLen)
-			fmt.Fprintf(rfb.htmlOut, "<div>Server Cut Text: <tt>%s</tt></div>\n", cutText)
-		} else if messageType == 111 {
-			// Ignore this byte
-			rfb.nextS(1)
-		} else {
-			fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverOffset, rfb.serverOffset, len(rfb.serverBuffer[rfb.serverOffset:]))
-			rfb.nextS(len(rfb.serverBuffer))
+		if err := rfb.consumeServerEvent(); err != nil {
+			return err
 		}
-		if messageType != 111 {
-			length := rfb.serverOffset - oldOffset
-			log.Printf("Server packet of type %d consumed at index %08x (%d) len %d - next packet at %08x", messageType, oldOffset, oldOffset, length, rfb.serverOffset)
-		}
+	}
+	return nil
+}
+func (rfb *RFB) consumeServerEvent() error {
+	oldOffset := rfb.serverOffset
+	messageType := rfb.serverBuffer[rfb.serverOffset]
+	if messageType == 0 {
+		rfb.nextS(rfb.decodeFrameBufferUpdate())
+	} else if messageType == 1 {
+		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: SetColourMapEntries</div>\n")
+		rfb.nextS(len(rfb.serverBuffer))
+	} else if messageType == 2 {
+		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: Bell</div>\n")
+		rfb.nextS(len(rfb.serverBuffer))
+	} else if messageType == 3 {
+		buf := rfb.nextS(8)
+		cutLen := rInt(buf[4:])
+		cutText := rfb.nextS(cutLen)
+		fmt.Fprintf(rfb.htmlOut, "<div>Server Cut Text: <tt>%s</tt></div>\n", cutText)
+	} else if messageType == 111 {
+		// Ignore this byte
+		rfb.nextS(1)
+	} else {
+		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverOffset, rfb.serverOffset, len(rfb.serverBuffer[rfb.serverOffset:]))
+		rfb.nextS(len(rfb.serverBuffer))
+	}
+	if messageType != 111 {
+		length := rfb.serverOffset - oldOffset
+		log.Printf("Server packet of type %d consumed at index %08x (%d) len %d - next packet at %08x", messageType, oldOffset, oldOffset, length, rfb.serverOffset)
 	}
 
 	return nil

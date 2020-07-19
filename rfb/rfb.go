@@ -86,13 +86,13 @@ func (rfb *RFB) Close() error {
 	}
 
 	fmt.Fprintf(rfb.htmlOut, `<h3>Client events</h3>`)
-	if err := rfb.readClientBytes(); err != nil {
+	if err := rfb.readAllClientBytes(); err != nil {
 		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
 		return err
 	}
 
 	fmt.Fprintf(rfb.htmlOut, `<h3>Server events</h3>`)
-	if err := rfb.readServerBytes(); err != nil {
+	if err := rfb.readAllServerBytes(); err != nil {
 		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
 		return err
 	}
