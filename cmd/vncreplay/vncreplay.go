@@ -164,6 +164,11 @@ func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
 }
 
 func (rfb *RFB) Close() error {
+	playerJS, err := getAsset("player.js")
+	if err != nil {
+		return err
+	}
+
 	if err := rfb.consumeHandshake(); err != nil {
 		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
 		return err
@@ -183,7 +188,9 @@ func (rfb *RFB) Close() error {
 
 	fmt.Fprintf(rfb.jsOut, "\n\nrfb.Render( document.getElementById('remote-framebuffer-protocol') );\n\n\n")
 
-	fmt.Fprintf(rfb.htmlOut, "<script src=\"player.js\"></script>")
+	fmt.Fprintf(rfb.htmlOut, "<script>")
+	rfb.htmlOut.Write(playerJS)
+	fmt.Fprintf(rfb.htmlOut, "</script>")
 	fmt.Fprintf(rfb.htmlOut, "<script>")
 	rfb.jsOut.WriteTo(rfb.htmlOut)
 	fmt.Fprintf(rfb.htmlOut, "</script>")
