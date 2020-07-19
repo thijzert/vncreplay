@@ -51,21 +51,46 @@ func (rfb *RFB) Close() error {
 		return err
 	}
 
+	defer func() {
+		fmt.Fprintf(rfb.htmlOut, `</body></html>`)
+		rfb.htmlOut.Close()
+	}()
+
 	if err := rfb.consumeHandshake(); err != nil {
 		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
 		return err
 	}
 
-	fmt.Fprintf(rfb.htmlOut, `<h3>Client events</h3>`)
-	if err := rfb.readAllClientBytes(); err != nil {
-		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
-		return err
+	fmt.Fprintf(rfb.htmlOut, `<h3>All events</h3>`)
+	for rfb.clientBuffer.Remaining() > 0 && rfb.serverBuffer.Remaining() > 0 {
+		tC, tS := rfb.clientBuffer.CurrentTime(), rfb.serverBuffer.CurrentTime()
+
+		if rfb.clientBuffer.Remaining() > 0 && tC <= tS {
+			if err := rfb.consumeClientEvent(); err != nil {
+				fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
+				return err
+			}
+		} else if rfb.serverBuffer.Remaining() > 0 && tS <= tC {
+			if err := rfb.consumeServerEvent(); err != nil {
+				fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
+				return err
+			}
+		}
 	}
 
-	fmt.Fprintf(rfb.htmlOut, `<h3>Server events</h3>`)
-	if err := rfb.readAllServerBytes(); err != nil {
-		fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
-		return err
+	if rfb.clientBuffer.Remaining() > 0 {
+		fmt.Fprintf(rfb.htmlOut, `<h3>Client stragglers</h3>`)
+		if err := rfb.readAllClientBytes(); err != nil {
+			fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
+			return err
+		}
+	}
+	if rfb.serverBuffer.Remaining() > 0 {
+		fmt.Fprintf(rfb.htmlOut, `<h3>Server stragglers</h3>`)
+		if err := rfb.readAllServerBytes(); err != nil {
+			fmt.Fprintf(rfb.htmlOut, "<h2>error: %s</h2>\n", err)
+			return err
+		}
 	}
 
 	fmt.Fprintf(rfb.jsOut, "\n\nrfb.Render( document.getElementById('remote-framebuffer-protocol') );\n\n\n")
@@ -77,9 +102,8 @@ func (rfb *RFB) Close() error {
 	rfb.jsOut.WriteTo(rfb.htmlOut)
 	fmt.Fprintf(rfb.htmlOut, "</script>")
 
-	fmt.Fprintf(rfb.htmlOut, `</body></html>`)
 	log.Printf("Replay complete.")
-	return rfb.htmlOut.Close()
+	return nil
 }
 
 func (rfb *RFB) consumeHandshake() error {
