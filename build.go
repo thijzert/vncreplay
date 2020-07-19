@@ -11,13 +11,13 @@ import (
 
 func main() {
 	// Embed vncreplay assets
-	if err := os.Chdir("cmd/vncreplay/assets"); err != nil {
+	if err := os.Chdir("rfb/assets"); err != nil {
 		log.Fatalf("Error: cannot find vncreplay assets directory. (error: %s)\nAre you running this from the repository root?", err)
 	}
 
 	var emb resemble.Resemble
 	emb.OutputFile = "../assets.go"
-	emb.PackageName = "main"
+	emb.PackageName = "rfb"
 	emb.AssetPaths = []string{
 		".",
 	}
@@ -25,7 +25,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	os.Chdir("../../..")
+	os.Chdir("../..")
 
 	// Build main executable
 	gofiles, err := filepath.Glob("cmd/vncreplay/*.go")
