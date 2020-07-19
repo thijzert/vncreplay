@@ -20,7 +20,7 @@ type pointerSkin struct {
 }
 
 func (rfb *RFB) readAllServerBytes() error {
-	for len(rfb.serverBuffer) > rfb.serverOffset {
+	for rfb.serverBuffer.Remaining() > 0 {
 		if err := rfb.consumeServerEvent(); err != nil {
 			return err
 		}
@@ -28,16 +28,16 @@ func (rfb *RFB) readAllServerBytes() error {
 	return nil
 }
 func (rfb *RFB) consumeServerEvent() error {
-	oldOffset := rfb.serverOffset
-	messageType := rfb.serverBuffer[rfb.serverOffset]
+	oldOffset := rfb.serverBuffer.CurrentOffset()
+	messageType := rInt(rfb.serverBuffer.Peek(1))
 	if messageType == 0 {
 		rfb.nextS(rfb.decodeFrameBufferUpdate())
 	} else if messageType == 1 {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: SetColourMapEntries</div>\n")
-		rfb.nextS(len(rfb.serverBuffer))
+		rfb.serverBuffer.Consume(rfb.serverBuffer.Remaining())
 	} else if messageType == 2 {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: Bell</div>\n")
-		rfb.nextS(len(rfb.serverBuffer))
+		rfb.serverBuffer.Consume(rfb.serverBuffer.Remaining())
 	} else if messageType == 3 {
 		buf := rfb.nextS(8)
 		cutLen := rInt(buf[4:])
@@ -45,14 +45,14 @@ func (rfb *RFB) consumeServerEvent() error {
 		fmt.Fprintf(rfb.htmlOut, "<div>Server Cut Text: <tt>%s</tt></div>\n", cutText)
 	} else if messageType == 111 {
 		// Ignore this byte
-		rfb.nextS(1)
+		rfb.serverBuffer.Consume(1)
 	} else {
-		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverOffset, rfb.serverOffset, len(rfb.serverBuffer[rfb.serverOffset:]))
-		rfb.nextS(len(rfb.serverBuffer))
+		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverBuffer.CurrentOffset(), rfb.serverBuffer.CurrentOffset(), rfb.serverBuffer.Remaining())
+		rfb.serverBuffer.Consume(rfb.serverBuffer.Remaining())
 	}
 	if messageType != 111 {
-		length := rfb.serverOffset - oldOffset
-		log.Printf("Server packet of type %d consumed at index %08x (%d) len %d - next packet at %08x", messageType, oldOffset, oldOffset, length, rfb.serverOffset)
+		length := rfb.serverBuffer.CurrentOffset() - oldOffset
+		log.Printf("Server packet of type %d consumed at index %08x (%d) len %d - next packet at %08x", messageType, oldOffset, oldOffset, length, rfb.serverBuffer.CurrentOffset())
 	}
 
 	return nil
@@ -61,13 +61,14 @@ func (rfb *RFB) consumeServerEvent() error {
 func (rfb *RFB) decodeFrameBufferUpdate() int {
 	targetImage := image.NewRGBA(image.Rect(0, 0, rfb.width, rfb.height))
 
-	nRects := rInt(rfb.serverBuffer[rfb.serverOffset+2 : rfb.serverOffset+4])
+	buf := rfb.serverBuffer.Peek(rfb.serverBuffer.Remaining())
+	nRects := rInt(buf[2:4])
 	rectsAdded := 0
 	// log.Printf("Number of rects: %d", nRects)
 
 	offset := 4
 	for i := 0; i < nRects; i++ {
-		n, img, enctype := rfb.pixelFormat.nextRect(rfb.serverBuffer[rfb.serverOffset+offset:])
+		n, img, enctype := rfb.pixelFormat.nextRect(buf[offset:])
 		offset += n
 
 		if enctype == -239 {
@@ -80,11 +81,11 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 	}
 
 	if rectsAdded > 0 {
-		fmt.Fprintf(rfb.htmlOut, "<div>framebuffer update: <img style=\"max-width: 1.5em;\" id=\"framebuffer_%08x\" src=\"data:image/png;base64,", rfb.serverOffset)
+		fmt.Fprintf(rfb.htmlOut, "<div>framebuffer update: <img style=\"max-width: 1.5em;\" id=\"framebuffer_%08x\" src=\"data:image/png;base64,", rfb.serverBuffer.CurrentOffset())
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
 		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
 
-		rfb.pushEvent("framebuffer", framebuffer{Id: fmt.Sprintf("framebuffer_%08x", rfb.serverOffset)})
+		rfb.pushEvent("framebuffer", framebuffer{Id: fmt.Sprintf("framebuffer_%08x", rfb.serverBuffer.CurrentOffset())})
 	}
 
 	return offset
@@ -93,12 +94,12 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 func (rfb *RFB) handleCursorUpdate(img image.Image) {
 	if img.Bounds().Dx() > 0 && img.Bounds().Dy() > 0 {
 		min := img.Bounds().Min
-		fmt.Fprintf(rfb.htmlOut, `<div>Draw cursor like this: <img id="pointer_%08x" src="data:image/png;base64,`, rfb.serverOffset)
+		fmt.Fprintf(rfb.htmlOut, `<div>Draw cursor like this: <img id="pointer_%08x" src="data:image/png;base64,`, rfb.serverBuffer.CurrentOffset())
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), img)
 		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
 
 		rfb.pushEvent("pointer-skin", pointerSkin{
-			Id: fmt.Sprintf("pointer_%08x", rfb.serverOffset),
+			Id: fmt.Sprintf("pointer_%08x", rfb.serverBuffer.CurrentOffset()),
 			X:  min.X,
 			Y:  min.Y,
 		})

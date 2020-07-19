@@ -11,7 +11,7 @@ type pointerupdate struct {
 }
 
 func (rfb *RFB) readAllClientBytes() error {
-	for len(rfb.clientBuffer) > rfb.clientOffset {
+	for rfb.clientBuffer.Remaining() > 0 {
 		if err := rfb.consumeClientEvent(); err != nil {
 			return err
 		}
@@ -20,7 +20,7 @@ func (rfb *RFB) readAllClientBytes() error {
 }
 
 func (rfb *RFB) consumeClientEvent() error {
-	messageType := rfb.clientBuffer[rfb.clientOffset]
+	messageType := rInt(rfb.clientBuffer.Peek(1))
 	if messageType == 0 {
 		buf := rfb.nextC(20)
 		rfb.pixelFormat = ParsePixelFormat(buf[4:20])
@@ -63,13 +63,13 @@ func (rfb *RFB) consumeClientEvent() error {
 		rfb.pushEvent("pointerupdate", evt)
 	} else if messageType == 6 {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
-		rfb.nextC(len(rfb.clientBuffer))
+		rfb.clientBuffer.Consume(rfb.clientBuffer.Remaining())
 	} else if messageType == 111 {
 		// Ignore this byte
-		rfb.nextC(1)
+		rfb.clientBuffer.Consume(1)
 	} else {
-		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown client packet type %d - ignoring all %d bytes</div>\n", messageType, len(rfb.clientBuffer))
-		rfb.nextC(len(rfb.clientBuffer))
+		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown client packet type %d - ignoring all %d bytes</div>\n", messageType, rfb.clientBuffer.Remaining())
+		rfb.clientBuffer.Consume(rfb.clientBuffer.Remaining())
 	}
 
 	return nil

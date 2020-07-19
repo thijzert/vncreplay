@@ -12,25 +12,21 @@ import (
 type RFB struct {
 	htmlOut      io.WriteCloser
 	jsOut        *bytes.Buffer
-	clientBuffer []byte
-	serverBuffer []byte
-	clientOffset int
-	serverOffset int
+	clientBuffer *timedBuffer
+	serverBuffer *timedBuffer
 	width        int
 	height       int
 	pixelFormat  PixelFormat
 	name         string
 }
 
-func NewRFB(out io.WriteCloser) *RFB {
+func New(out io.WriteCloser) *RFB {
 	var jsout bytes.Buffer
 	var rfb = &RFB{
 		htmlOut:      out,
 		jsOut:        &jsout,
-		clientBuffer: make([]byte, 0, 2000),
-		serverBuffer: make([]byte, 0, 2000),
-		clientOffset: 0,
-		serverOffset: 0,
+		clientBuffer: newBuffer(),
+		serverBuffer: newBuffer(),
 	}
 
 	fmt.Fprintf(rfb.htmlOut, "<!DOCTYPE html>\n<html>\n")
@@ -42,36 +38,11 @@ func NewRFB(out io.WriteCloser) *RFB {
 }
 
 func (rfb *RFB) ClientBytes(t time.Duration, offset int, buf []byte) error {
-	if offset == len(rfb.clientBuffer) {
-		// Simple case: in-order, contiguous packet delivery
-		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
-	} else if offset > len(rfb.clientBuffer) {
-		// We've skipped some bytes. Fill with skip bytes.
-		for i := len(rfb.clientBuffer); i < offset; i++ {
-			rfb.clientBuffer = append(rfb.clientBuffer, 111)
-		}
-		rfb.clientBuffer = append(rfb.clientBuffer, buf...)
-	} else {
-		log.Fatalf("sequence mismatch: already have 0x%02x client bytes; about to receive offset 0x%02x", len(rfb.clientBuffer), offset)
-	}
-	return nil
+	return rfb.clientBuffer.Add(t, offset, buf)
 }
 
 func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
-	if offset == len(rfb.serverBuffer) {
-		// Simple case: in-order, contiguous packet delivery
-		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
-	} else if offset > len(rfb.serverBuffer) {
-		// We've skipped some bytes. Fill with skip bytes
-		for i := len(rfb.serverBuffer); i < offset; i++ {
-			rfb.serverBuffer = append(rfb.serverBuffer, 111)
-		}
-		rfb.serverBuffer = append(rfb.serverBuffer, make([]byte, offset-len(rfb.serverBuffer))...)
-		rfb.serverBuffer = append(rfb.serverBuffer, buf...)
-	} else {
-		log.Fatalf("sequence mismatch: already have 0x%02x server bytes; about to receive offset 0x%02x", len(rfb.serverBuffer), offset)
-	}
-	return nil
+	return rfb.serverBuffer.Add(t, offset, buf)
 }
 
 func (rfb *RFB) Close() error {
@@ -165,23 +136,11 @@ func (rfb *RFB) consumeHandshake() error {
 }
 
 func (rfb *RFB) nextS(l int) []byte {
-	start := rfb.serverOffset
-	if (start + l) > len(rfb.serverBuffer) {
-		l = len(rfb.serverBuffer) - rfb.serverOffset
-	}
-
-	rfb.serverOffset += l
-	return rfb.serverBuffer[start : start+l]
+	return rfb.serverBuffer.Consume(l)
 }
 
 func (rfb *RFB) nextC(l int) []byte {
-	start := rfb.clientOffset
-	if (start + l) > len(rfb.clientBuffer) {
-		l = len(rfb.clientBuffer) - rfb.clientOffset
-	}
-
-	rfb.clientOffset += l
-	return rfb.clientBuffer[start : start+l]
+	return rfb.clientBuffer.Consume(l)
 }
 
 func (rfb *RFB) pushEvent(eventType string, eventData interface{}) {
