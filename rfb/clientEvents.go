@@ -20,6 +20,7 @@ func (rfb *RFB) readAllClientBytes() error {
 }
 
 func (rfb *RFB) consumeClientEvent() error {
+	tEvent := rfb.clientBuffer.CurrentTime()
 	messageType := rInt(rfb.clientBuffer.Peek(1))
 	if messageType == 0 {
 		buf := rfb.nextC(20)
@@ -42,10 +43,10 @@ func (rfb *RFB) consumeClientEvent() error {
 			} else {
 				fmt.Fprintf(rfb.htmlOut, "<div>Press key 0x%2x</div>\n", key)
 			}
-			rfb.pushEvent("keypress", keypress{Key: key})
+			rfb.pushEvent("keypress", tEvent, keypress{Key: key})
 		} else {
 			fmt.Fprintf(rfb.htmlOut, "<div>release key <tt>%c</tt> (0x%2x)</div>\n", key, key)
-			rfb.pushEvent("keypress", keypress{Key: key})
+			rfb.pushEvent("keypress", tEvent, keypress{Key: key})
 		}
 	} else if messageType == 5 {
 		buf := rfb.nextC(6)
@@ -60,7 +61,7 @@ func (rfb *RFB) consumeClientEvent() error {
 			Sd:  bm >> 4 & 0x1,
 		}
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"pointerupdate\" data-x=\"%d\" data-y=\"%d\" data-bm=\"%d\"></div>\n", evt.X, evt.Y, bm)
-		rfb.pushEvent("pointerupdate", evt)
+		rfb.pushEvent("pointerupdate", tEvent, evt)
 	} else if messageType == 6 {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
 		rfb.clientBuffer.Consume(rfb.clientBuffer.Remaining())

@@ -6,9 +6,9 @@ class RFB {
 		this.events = [];
 	}
 
-	PushEvent(type, data) {
+	PushEvent(type, time, data) {
 		if ( type != "pointerupdate" && type != "keypress" && type != "keyrelease" ) {
-			this.events.push({type, data});
+			this.events.push({type, time, data});
 		}
 	}
 

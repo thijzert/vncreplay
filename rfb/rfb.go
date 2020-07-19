@@ -143,10 +143,14 @@ func (rfb *RFB) nextC(l int) []byte {
 	return rfb.clientBuffer.Consume(l)
 }
 
-func (rfb *RFB) pushEvent(eventType string, eventData interface{}) {
+func (rfb *RFB) pushEvent(eventType string, tEvent time.Duration, eventData interface{}) {
+
+	// Time since start in milliseconds, rounded to 1 decimal
+	t := float64((tEvent.Microseconds()+50)/100) / 10.0
+
 	var b bytes.Buffer
 	var e = json.NewEncoder(&b)
-	e.Encode([]interface{}{eventType, eventData})
+	e.Encode([]interface{}{eventType, t, eventData})
 	s := b.Bytes()
 
 	fmt.Fprintf(rfb.jsOut, "rfb.PushEvent(%s);\n", s[1:len(s)-2])

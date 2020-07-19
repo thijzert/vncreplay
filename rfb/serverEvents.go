@@ -28,6 +28,7 @@ func (rfb *RFB) readAllServerBytes() error {
 	return nil
 }
 func (rfb *RFB) consumeServerEvent() error {
+	// tEvent := rfb.serverBuffer.CurrentTime()
 	oldOffset := rfb.serverBuffer.CurrentOffset()
 	messageType := rInt(rfb.serverBuffer.Peek(1))
 	if messageType == 0 {
@@ -61,6 +62,7 @@ func (rfb *RFB) consumeServerEvent() error {
 func (rfb *RFB) decodeFrameBufferUpdate() int {
 	targetImage := image.NewRGBA(image.Rect(0, 0, rfb.width, rfb.height))
 
+	tEvent := rfb.serverBuffer.CurrentTime()
 	buf := rfb.serverBuffer.Peek(rfb.serverBuffer.Remaining())
 	nRects := rInt(buf[2:4])
 	rectsAdded := 0
@@ -85,27 +87,28 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
 		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
 
-		rfb.pushEvent("framebuffer", framebuffer{Id: fmt.Sprintf("framebuffer_%08x", rfb.serverBuffer.CurrentOffset())})
+		rfb.pushEvent("framebuffer", tEvent, framebuffer{Id: fmt.Sprintf("framebuffer_%08x", rfb.serverBuffer.CurrentOffset())})
 	}
 
 	return offset
 }
 
 func (rfb *RFB) handleCursorUpdate(img image.Image) {
+	tEvent := rfb.serverBuffer.CurrentTime()
 	if img.Bounds().Dx() > 0 && img.Bounds().Dy() > 0 {
 		min := img.Bounds().Min
 		fmt.Fprintf(rfb.htmlOut, `<div>Draw cursor like this: <img id="pointer_%08x" src="data:image/png;base64,`, rfb.serverBuffer.CurrentOffset())
 		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), img)
 		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
 
-		rfb.pushEvent("pointer-skin", pointerSkin{
+		rfb.pushEvent("pointer-skin", tEvent, pointerSkin{
 			Id: fmt.Sprintf("pointer_%08x", rfb.serverBuffer.CurrentOffset()),
 			X:  min.X,
 			Y:  min.Y,
 		})
 	} else {
 		fmt.Fprintf(rfb.htmlOut, "<div>Use the default cursor from here.</div>\n")
-		rfb.pushEvent("pointer-skin", pointerSkin{Default: 1})
+		rfb.pushEvent("pointer-skin", tEvent, pointerSkin{Default: 1})
 	}
 }
 
