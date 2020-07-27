@@ -26,17 +26,22 @@ class RFB {
 
 		let controls = document.createElement("div");
 
-		this.seekbar = document.createElement("input")
-		this.seekbar.type = "range"
-		this.seekbar.min = 0
+		this.seekbar = document.createElement("input");
+		this.seekbar.id = "seekbar_" + Math.random().toString(36).substr(2);
+		this.seekbar.type = "range";
+		this.seekbar.min = 0;
 		this.seekbar.max = this.events.length;
 		this.seekbar.value = 0;
 
 		let seek = () => this.seek();
-		this.seekbar.addEventListener("change", seek)
-		this.seekbar.addEventListener("input", seek)
+		this.seekbar.addEventListener("change", seek);
+		this.seekbar.addEventListener("input", seek);
 
 		controls.appendChild(this.seekbar);
+
+		this.seekbarLabel = document.createElement("label");
+		this.seekbarLabel.htmlFor = this.seekbar.id;
+		controls.appendChild(this.seekbarLabel);
 
 		elt.appendChild(this.canvas);
 		elt.appendChild(controls);
@@ -62,6 +67,12 @@ class RFB {
 			this.applyEvent(i);
 		}
 		this.eventIndex = idx;
+
+		this.seekbarLabel.innerText = "event " + idx;
+
+		if ( this.seekbar.value != idx ) {
+			this.seekbar.value = idx;
+		}
 	}
 
 	applyEvent(idx) {
