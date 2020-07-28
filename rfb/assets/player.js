@@ -7,6 +7,12 @@ class RFB {
 		this.currentTime = 0.0;
 		this.playing = false;
 		this.lastFrame = 0.0;
+		this.pointer = {
+			X: 0.0,
+			Y: 0.0,
+			canvas: null,
+			ctx: null,
+		}
 		this.events = [];
 	}
 
@@ -15,7 +21,7 @@ class RFB {
 			this.tmax = time;
 		}
 
-		if ( type != "pointerupdate" && type != "keypress" && type != "keyrelease" ) {
+		if ( type != "keypress" && type != "keyrelease" ) {
 			this.events.push({type, time, data});
 		}
 	}
@@ -25,14 +31,29 @@ class RFB {
 
 		elt.innerHTML = "";
 
+		let layers = document.createElement("div");
+		layers.style.position = "relative";
+
 		this.canvas = document.createElement("canvas");
 		this.canvas.height = this.height;
 		this.canvas.width = this.width;
-
 		this.canvas.style.maxHeight = "80vh";
 		this.canvas.style.maxWidth = "80vw";
 
 		this.ctx = this.canvas.getContext("2d");
+
+		layers.appendChild(this.canvas);
+
+		this.pointer.canvas = document.createElement("canvas");
+		this.pointer.canvas.height = this.height;
+		this.pointer.canvas.width = this.width;
+		this.pointer.canvas.style.maxHeight = "80vh";
+		this.pointer.canvas.style.maxWidth = "80vw";
+		this.pointer.canvas.style.position = "absolute";
+		this.pointer.canvas.style.top = 0;
+		this.pointer.canvas.style.left = 0;
+		this.pointer.ctx = this.pointer.canvas.getContext("2d");
+		layers.appendChild(this.pointer.canvas);
 
 		let controls = document.createElement("div");
 
@@ -63,10 +84,11 @@ class RFB {
 		this.speedknob = this.createSpeedKnob();
 		controls.appendChild(this.speedknob);
 
-		elt.appendChild(this.canvas);
+		elt.appendChild(layers);
 		elt.appendChild(controls);
 
-		this.Reset()
+		this.Reset();
+		this.Pause();
 	}
 
 	Reset() {
@@ -74,6 +96,11 @@ class RFB {
 		this.setTime(0);
 		this.ctx.fillStyle = 'rgb( 0, 0, 0 )';
 		this.ctx.fillRect( 0, 0, this.width, this.height );
+
+		// Get rid of the pointer
+		this.pointer.X = -20;
+		this.pointer.Y = -20;
+		this.blitMouse();
 	}
 
 	Play() {
@@ -146,6 +173,9 @@ class RFB {
 		for ( let i = this.eventIndex; i < idx; i++ ) {
 			this.applyEvent(i);
 		}
+		if ( idx > this.eventIndex ) {
+			this.blitMouse();
+		}
 		this.eventIndex = idx;
 
 		this.seekbarLabel.innerText = "event " + idx;
@@ -159,6 +189,8 @@ class RFB {
 		let event = this.events[idx];
 		if ( event.type == "framebuffer" ) {
 			this.applyFramebuffer(event.data);
+		} else if ( event.type == "pointerupdate" ) {
+			this.applyPointerUpdate(event.data);
 		}
 	}
 
@@ -167,6 +199,20 @@ class RFB {
 		if ( img ) {
 			this.ctx.drawImage(img, 0, 0);
 		}
+	}
+
+	applyPointerUpdate(pdata) {
+		this.pointer.X = pdata.X;
+		this.pointer.Y = pdata.Y;
+	}
+
+	blitMouse() {
+		this.pointer.ctx.clearRect(0, 0, this.width, this.height);
+
+		this.pointer.ctx.fillStyle = 'rgba( 255, 30, 30, 0.7 )';
+		this.pointer.ctx.beginPath();
+		this.pointer.ctx.ellipse(this.pointer.X, this.pointer.Y, 3, 3, 0, 0, Math.PI*2);
+		this.pointer.ctx.fill();
 	}
 
 	createSpeedKnob() {
