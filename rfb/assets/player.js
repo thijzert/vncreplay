@@ -3,10 +3,15 @@ class RFB {
 	constructor(width, height) {
 		this.width = width;
 		this.height = height;
+		this.tmax = 0.0;
 		this.events = [];
 	}
 
 	PushEvent(type, time, data) {
+		if ( time > this.tmax ) {
+			this.tmax = time;
+		}
+
 		if ( type != "pointerupdate" && type != "keypress" && type != "keyrelease" ) {
 			this.events.push({type, time, data});
 		}
@@ -30,7 +35,8 @@ class RFB {
 		this.seekbar.id = "seekbar_" + Math.random().toString(36).substr(2);
 		this.seekbar.type = "range";
 		this.seekbar.min = 0;
-		this.seekbar.max = this.events.length;
+		this.seekbar.max = Math.floor( this.tmax + 250 );
+		this.seekbar.step = 0.1;
 		this.seekbar.value = 0;
 
 		let seek = () => this.seek();
@@ -51,12 +57,33 @@ class RFB {
 
 	Reset() {
 		this.eventIndex = 0;
+		this.setTime(0);
 		this.ctx.fillStyle = 'rgb( 0, 0, 0 )';
 		this.ctx.fillRect( 0, 0, this.width, this.height );
 	}
 
 	seek() {
-		this.setEventIndex(this.seekbar.value);
+		this.setTime(this.seekbar.value);
+	}
+
+	setTime( time ) {
+		let i, n = 0;
+		for ( i = 0; i < this.events.length; i++ ) {
+			if ( this.events[i].time < time ) {
+				n = i;
+			}
+		}
+		this.setEventIndex(n);
+
+		let t = time / 1000;
+		let m = Math.floor( t / 60 );
+		let s = t - m;
+		let z = (s) => s < 10 ? "0" : "";
+		this.seekbarLabel.innerText = "time " + z(m) + m + ":" + z(s) + s.toFixed(1);
+
+		if ( this.seekbar.value != time ) {
+			this.seekbar.value = time;
+		}
 	}
 
 	setEventIndex(idx) {

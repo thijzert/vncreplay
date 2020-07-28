@@ -48,7 +48,7 @@ func (rfb *RFB) consumeServerEvent() error {
 		// Ignore this byte
 		rfb.serverBuffer.Consume(1)
 	} else {
-		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverBuffer.CurrentOffset(), rfb.serverBuffer.CurrentOffset(), rfb.serverBuffer.Remaining())
+		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverBuffer.CurrentOffset(), rfb.serverBuffer.Remaining())
 		rfb.serverBuffer.Consume(rfb.serverBuffer.Remaining())
 	}
 	if messageType != 111 {
