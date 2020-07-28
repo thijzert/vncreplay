@@ -60,6 +60,9 @@ class RFB {
 		this.seekbarLabel.htmlFor = this.seekbar.id;
 		controls.appendChild(this.seekbarLabel);
 
+		this.speedknob = this.createSpeedKnob();
+		controls.appendChild(this.speedknob);
+
 		elt.appendChild(this.canvas);
 		elt.appendChild(controls);
 
@@ -100,7 +103,7 @@ class RFB {
 		if ( !this.playing ) {
 			return;
 		}
-		let tnew = this.currentTime + ( time - this.lastFrame );
+		let tnew = this.currentTime + ( time - this.lastFrame ) * parseFloat(this.speedknob.value);
 		if ( tnew > this.tmax ) {
 			tnew = this.tmax;
 		}
@@ -111,7 +114,7 @@ class RFB {
 	}
 
 	seek() {
-		this.setTime(this.seekbar.value);
+		this.setTime(parseFloat(this.seekbar.value));
 	}
 
 	setTime( time ) {
@@ -129,7 +132,7 @@ class RFB {
 		let m = Math.floor( t / 60 );
 		let s = t - m;
 		let z = (s) => s < 10 ? "0" : "";
-		this.seekbarLabel.innerText = "time " + z(m) + m + ":" + z(s) + s.toFixed(1);
+		this.seekbarLabel.innerText = "" + z(m) + m + ":" + z(s) + s.toFixed(1);
 
 		if ( this.seekbar.value != time ) {
 			this.seekbar.value = time;
@@ -164,6 +167,39 @@ class RFB {
 		if ( img ) {
 			this.ctx.drawImage(img, 0, 0);
 		}
+	}
+
+	createSpeedKnob() {
+		let o;
+		let rv = document.createElement("select");
+
+		o = document.createElement("option");
+		o.value = 0.25;
+		o.innerHTML = "&#x1F40C (0.25×)";
+		rv.appendChild(o);
+
+		o = document.createElement("option");
+		o.value = 0.5;
+		o.innerHTML = "&#x1F422 (0.5×)";
+		rv.appendChild(o);
+
+		o = document.createElement("option");
+		o.value = 1.0;
+		o.innerHTML = "&#x1F6B6 (1.0×)";
+		o.selected = true;
+		rv.appendChild(o);
+
+		o = document.createElement("option");
+		o.value = 1.5;
+		o.innerHTML = "&#x1F407 (1.5×)";
+		rv.appendChild(o);
+
+		o = document.createElement("option");
+		o.value = 3.0;
+		o.innerHTML = "&#x1F406 (3.0×)";
+		rv.appendChild(o);
+
+		return rv;
 	}
 }
 
