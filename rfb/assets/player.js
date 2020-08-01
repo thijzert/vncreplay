@@ -118,6 +118,10 @@ class RFB {
 	}
 
 	Play() {
+		if ( this.currentTime == this.tmax ) {
+			this.Reset();
+		}
+
 		this.playing = true;
 		this.playbutton.innerText = "\u258c\u258c";
 		this.powerIndicator.style.backgroundColor = "#31ec57";
