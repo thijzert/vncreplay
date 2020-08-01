@@ -12,6 +12,7 @@ class RFB {
 			Y: 0.0,
 			buttons: { Lmb: 0, Rmb: 0, Mmb: 0, Su: 0, Sd: 0 },
 			indicators: { Lmb: null, Rmb: null, Mmb: null, Su: null, Sd: null },
+			clicks: [],
 			skin: {
 				img: null,
 				offsetX: 0,
@@ -112,6 +113,7 @@ class RFB {
 		this.pointer.X = -20;
 		this.pointer.Y = -20;
 		this.pointer.buttons = { Lmb: 0, Rmb: 0, Mmb: 0, Su: 0, Sd: 0 };
+		this.pointer.clicks = [];
 		this.blitMouse();
 
 		this.resetKeyboardIndicators();
@@ -213,15 +215,15 @@ class RFB {
 	applyEvent(idx) {
 		let event = this.events[idx];
 		if ( event.type == "framebuffer" ) {
-			this.applyFramebuffer(event.data);
+			this.applyFramebuffer(event.data, event.time);
 		} else if ( event.type == "pointerupdate" ) {
-			this.applyPointerUpdate(event.data);
+			this.applyPointerUpdate(event.data, event.time);
 		} else if ( event.type == "pointer-skin" ) {
-			this.applyPointerSkin(event.data);
+			this.applyPointerSkin(event.data, event.time);
 		} else if ( event.type == "keypress" ) {
-			this.applyKeyPress(event.data);
+			this.applyKeyPress(event.data, event.time);
 		} else if ( event.type == "keyrelease" ) {
-			this.applyKeyRelease(event.data);
+			this.applyKeyRelease(event.data, event.time);
 		} else {
 			console.error("Event ", event.type, " has not been implemented");
 		}
@@ -238,7 +240,7 @@ class RFB {
 		if ( skin.Default == 1 ) {
 			this.pointer.skin.img = null;
 		}
-		if ( typeof skin.Id == "string" ) {
+		if ( typeof skin.Id == "string" && skin.Id != "" ) {
 			this.pointer.skin.img = document.getElementById(skin.Id);
 		}
 		if ( typeof skin.X == "number" ) {
@@ -249,9 +251,14 @@ class RFB {
 		}
 	}
 
-	applyPointerUpdate(pdata) {
+	applyPointerUpdate(pdata, time) {
 		this.pointer.X = pdata.X;
 		this.pointer.Y = pdata.Y;
+
+		if ( pdata.Lmb && !this.pointer.buttons.Lmb ) {
+			console.log("Left click");
+			this.pointer.clicks.push({ type: 0, x: pdata.X, y: pdata.Y, time: time });
+		}
 
 		for ( let k in this.pointer.buttons ) {
 			if ( pdata.hasOwnProperty(k) ) {
@@ -364,10 +371,15 @@ class RFB {
 	blitMouse() {
 		this.pointer.ctx.clearRect(0, 0, this.width, this.height);
 
+		this.pointer.ctx.lineWidth = 0;
 		this.pointer.ctx.fillStyle = 'rgba( 255, 30, 30, 0.7 )';
 		this.pointer.ctx.beginPath();
 		this.pointer.ctx.ellipse(this.pointer.X, this.pointer.Y, 3, 3, 0, 0, Math.PI*2);
 		this.pointer.ctx.fill();
+
+		for ( let click of this.pointer.clicks ) {
+			this.drawClick(click);
+		}
 
 		for ( let k in this.pointer.buttons ) {
 			if ( this.pointer.indicators[k] ) {
@@ -380,6 +392,25 @@ class RFB {
 			let y = this.pointer.Y - this.pointer.skin.offsetY;
 			this.pointer.ctx.drawImage(this.pointer.skin.img, x, y);
 		}
+	}
+
+	drawClick(click) {
+		const DURATION = 800;
+		const MAXWIDTH = 20.0;
+		const RADIUS = 50.0;
+
+		let trel = ( this.currentTime - click.time ) / DURATION;
+		console.log(trel);
+		if ( trel < 0.0 || trel > 1.0 ) {
+			return;
+		}
+
+		this.pointer.ctx.strokeStyle = 'rgba( 255, 30, 30, 0.7 )';
+		this.pointer.ctx.lineWidth = MAXWIDTH*trel*(1.0-trel);
+
+		this.pointer.ctx.beginPath();
+		this.pointer.ctx.ellipse(click.x, click.y, RADIUS*trel, RADIUS*trel, 0, 0, Math.PI*2);
+		this.pointer.ctx.stroke();
 	}
 }
 
