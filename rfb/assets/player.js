@@ -78,6 +78,8 @@ class RFB {
 
 		this.Reset();
 		this.Pause();
+
+		this.playbutton.focus();
 	}
 
 	Reset() {
