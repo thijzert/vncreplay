@@ -29,41 +29,22 @@ class RFB {
 	Render(elt) {
 		this.tmax = Math.floor( this.tmax + 250 );
 
-		elt.innerHTML = "";
-
-		let layers = document.createElement("div");
-		layers.style.position = "relative";
-
-		this.canvas = document.createElement("canvas");
+		this.canvas = elt.querySelector(".-framebuffer");
 		this.canvas.height = this.height;
 		this.canvas.width = this.width;
-		this.canvas.style.maxHeight = "80vh";
-		this.canvas.style.maxWidth = "80vw";
 
 		this.ctx = this.canvas.getContext("2d");
 
-		layers.appendChild(this.canvas);
-
-		this.pointer.canvas = document.createElement("canvas");
+		this.pointer.canvas = elt.querySelector(".-spritelayer");
 		this.pointer.canvas.height = this.height;
 		this.pointer.canvas.width = this.width;
-		this.pointer.canvas.style.maxHeight = "80vh";
-		this.pointer.canvas.style.maxWidth = "80vw";
-		this.pointer.canvas.style.position = "absolute";
-		this.pointer.canvas.style.top = 0;
-		this.pointer.canvas.style.left = 0;
 		this.pointer.ctx = this.pointer.canvas.getContext("2d");
-		layers.appendChild(this.pointer.canvas);
 
-		let controls = document.createElement("div");
-
-		this.playbutton = document.createElement("button");
+		this.playbutton = elt.querySelector(".-vic-controls .-playpause");
 		this.playbutton.innerText = "";
 		this.playbutton.addEventListener("click", () => this.TogglePlaying());
-		this.playbutton.style.width = "4rem";
-		controls.appendChild(this.playbutton);
 
-		this.seekbar = document.createElement("input");
+		this.seekbar = elt.querySelector(".-vic-controls .-seek");
 		this.seekbar.id = "seekbar_" + Math.random().toString(36).substr(2);
 		this.seekbar.type = "range";
 		this.seekbar.min = 0;
@@ -75,17 +56,11 @@ class RFB {
 		this.seekbar.addEventListener("change", seek);
 		this.seekbar.addEventListener("input", seek);
 
-		controls.appendChild(this.seekbar);
 
-		this.seekbarLabel = document.createElement("label");
+		this.seekbarLabel = elt.querySelector(".-vic-controls .-playtime");
 		this.seekbarLabel.htmlFor = this.seekbar.id;
-		controls.appendChild(this.seekbarLabel);
 
-		this.speedknob = this.createSpeedKnob();
-		controls.appendChild(this.speedknob);
-
-		elt.appendChild(layers);
-		elt.appendChild(controls);
+		this.speedknob = elt.querySelector(".-vic-controls .-speedknob");
 
 		this.Reset();
 		this.Pause();

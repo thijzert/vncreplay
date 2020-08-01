@@ -31,7 +31,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	replay := rfb.New(out)
+	replay, err := rfb.New(out)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer replay.Close()
 
 	var handle *pcap.Handle

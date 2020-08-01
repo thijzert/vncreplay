@@ -1,0 +1,144 @@
+
+.victrola, .victrola div
+{
+	box-sizing: border-box;
+	background-color: rgba( 255, 255, 255, 0.3 );
+}
+
+.victrola .-vic-a
+{
+	display: flex;
+	flex-direction: column;
+}
+.victrola .-vic-aa
+{
+	display: flex;
+	/* flex-direction: row; */
+}
+.victrola .-vic-aab
+{
+	margin: 0 auto;
+	padding: 2.5rem 2.5rem 3.5rem 2.5rem;
+	border-radius: 1.5rem;
+	background-color: #c0c0b8;
+	position: relative;
+}
+.victrola .-vic-aab > canvas
+{
+	display: block;
+	height: 100%;
+	max-height: 75vh;
+	max-width: 100%;
+}
+.victrola .-vic-aab canvas.-spritelayer
+{
+	position: absolute;
+	top: 2.5rem;
+	left: 2.5rem;
+}
+.victrola .-vic-aab svg.-logo
+{
+	position: absolute;
+	bottom: 1rem;
+	left: 4rem;
+	height: 2rem;
+	width: 4.581rem;
+}
+.victrola .-vic-aab .-vic-indicator
+{
+	position: absolute;
+	bottom: 1.25rem;
+	height: 0.625rem;
+	width: 1.375rem;
+	background-color: #3e3e3e;
+}
+.victrola .-vic-aab .-vic-indicator.-power
+{
+	right: 5rem;
+}
+.victrola .-vic-controls
+{
+	position: absolute;
+	height: 3rem;
+	bottom: 3.5rem;
+	left: 2.5rem;
+	width: calc( 100% - 5rem );
+
+	display: flex;
+	flex-direction: row;
+	color: white;
+
+	opacity: 0.3;
+	background-color: transparent;
+}
+.victrola .-vic-controls:hover
+{
+	opacity: 1.0;
+	background-color: rgba( 0, 0, 0, 0.4 );
+}
+.victrola .-vic-controls > *
+{
+	margin: 0.5rem;
+}
+.victrola .-vic-controls .-playpause
+{
+	flex: 0;
+	min-width: 4.5rem;
+}
+.victrola .-vic-controls .-seek
+{
+	flex: 1;
+	width: 100%;
+}
+.victrola .-vic-controls .-playtime
+{
+	flex: 0;
+	min-width: 3rem;
+	margin-top: auto;
+	margin-bottom: auto;
+}
+.victrola .-vic-controls .-speedknob
+{
+	flex: 0;
+	width: 4rem;
+}
+
+.victrola .-vic-iodevices
+{
+	margin-top: 0.25rem;
+	display: flex;
+	flex-direction: row;
+}
+.victrola .-vic-iodevices > *
+{
+	margin: 1rem;
+}
+.victrola .-vic-iodevices .-vic-keyboard > svg
+{
+	width: 60vw;
+	height: 18.16vw;
+}
+.victrola .-vic-iodevices .-vic-mouse > svg
+{
+	margin-top: 1rem;
+	width: 9.13vw;
+	height: 14vw;
+}
+.victrola .-vic-iodevices .-vic-readout
+{
+	border: 2px solid #b2b2b2;
+	white-space: pre-wrap;
+	word-break: break-all;
+	overflow-y: scroll;
+	padding: .75rem;
+	border-radius: .5rem;
+}
+.victrola .-vic-iodevices .-vic-readout .-keysym
+{
+	display: inline-block;
+	background-color: #b2b2b2;
+	font-size: 60%;
+	padding: 0.125rem 0.25rem;
+	margin: 0 0.125rem;
+	border-radius: 0.25rem;
+}

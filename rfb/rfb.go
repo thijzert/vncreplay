@@ -20,7 +20,7 @@ type RFB struct {
 	name         string
 }
 
-func New(out io.WriteCloser) *RFB {
+func New(out io.WriteCloser) (*RFB, error) {
 	var jsout bytes.Buffer
 	var rfb = &RFB{
 		htmlOut:      out,
@@ -29,12 +29,23 @@ func New(out io.WriteCloser) *RFB {
 		serverBuffer: newBuffer(),
 	}
 
-	fmt.Fprintf(rfb.htmlOut, "<!DOCTYPE html>\n<html>\n")
-	fmt.Fprintf(rfb.htmlOut, "<head><meta charset=\"UTF-8\"></head>\n")
-	fmt.Fprintf(rfb.htmlOut, "<body>\n")
-	fmt.Fprintf(rfb.htmlOut, "<div id=\"remote-framebuffer-protocol\"></div>\n")
+	htmlFragments, err := getAssets(
+		"victrola.unpacked.1.html",
+		"victrola.unpacked.2.html",
+		"victrola.css",
+	)
+	if err != nil {
+		return nil, err
+	}
 
-	return rfb
+	rfb.htmlOut.Write(htmlFragments[0])
+
+	// Write stuff in the header
+	fmt.Fprintf(rfb.htmlOut, "<style>%s</style>\n", htmlFragments[2])
+
+	rfb.htmlOut.Write(htmlFragments[1])
+
+	return rfb, nil
 }
 
 func (rfb *RFB) ClientBytes(t time.Duration, offset int, buf []byte) error {
@@ -45,14 +56,31 @@ func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
 	return rfb.serverBuffer.Add(t, offset, buf)
 }
 
+func getAssets(names ...string) ([][]byte, error) {
+	rv := make([][]byte, len(names))
+	var err error
+	for i := range names {
+		rv[i], err = getAsset(names[i])
+		if err != nil {
+			return nil, fmt.Errorf("error loading '%s': %s", names[i], err)
+		}
+	}
+	return rv, nil
+}
+
 func (rfb *RFB) Close() error {
+	htmlFragments, err := getAssets("victrola.unpacked.3.html", "victrola.unpacked.4.html")
+	if err != nil {
+		return err
+	}
+
 	playerJS, err := getAsset("player.js")
 	if err != nil {
 		return err
 	}
 
 	defer func() {
-		fmt.Fprintf(rfb.htmlOut, `</body></html>`)
+		rfb.htmlOut.Write(htmlFragments[1])
 		rfb.htmlOut.Close()
 	}()
 
@@ -94,6 +122,8 @@ func (rfb *RFB) Close() error {
 	}
 
 	fmt.Fprintf(rfb.jsOut, "\n\nrfb.Render( document.getElementById('remote-framebuffer-protocol') );\n\n\n")
+
+	rfb.htmlOut.Write(htmlFragments[0])
 
 	fmt.Fprintf(rfb.htmlOut, "<script>")
 	rfb.htmlOut.Write(playerJS)
@@ -149,7 +179,7 @@ func (rfb *RFB) consumeHandshake() error {
 	rfb.height = rInt(sInit[2:4])
 	rfb.pixelFormat = ParsePixelFormat(sInit[4:20])
 	fmt.Fprintf(rfb.htmlOut, "<div>Remote display %dx%d, %s</div>\n", rfb.width, rfb.height, rfb.pixelFormat)
-	fmt.Fprintf(rfb.jsOut, "\n\nrfb = new RFB( %d, %d );\n\n", rfb.width, rfb.height)
+	fmt.Fprintf(rfb.jsOut, "\n\nlet rfb = new RFB( %d, %d );\n\n", rfb.width, rfb.height)
 	nlen := rInt(sInit[20:24])
 	if nlen > 0 {
 		rfb.name = string(rfb.nextS(nlen))
