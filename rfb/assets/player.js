@@ -10,6 +10,8 @@ class RFB {
 		this.pointer = {
 			X: 0.0,
 			Y: 0.0,
+			buttons: { Lmb: 0, Rmb: 0, Mmb: 0, Su: 0, Sd: 0 },
+			indicators: { Lmb: null, Rmb: null, Mmb: null, Su: null, Sd: null },
 			canvas: null,
 			ctx: null,
 		}
@@ -39,6 +41,15 @@ class RFB {
 		this.pointer.canvas.height = this.height;
 		this.pointer.canvas.width = this.width;
 		this.pointer.ctx = this.pointer.canvas.getContext("2d");
+
+		let mousesvg = elt.querySelector(".-vic-iodevices .-vic-mouse");
+		if ( mousesvg ) {
+			this.pointer.indicators.Lmb = mousesvg.querySelector(".Lmb");
+			this.pointer.indicators.Mmb = mousesvg.querySelector(".Mmb");
+			this.pointer.indicators.Rmb = mousesvg.querySelector(".Rmb");
+			this.pointer.indicators.Su = mousesvg.querySelector(".Su");
+			this.pointer.indicators.Sd = mousesvg.querySelector(".Sd");
+		}
 
 		this.playbutton = elt.querySelector(".-vic-controls .-playpause");
 		this.playbutton.innerText = "";
@@ -78,6 +89,7 @@ class RFB {
 		// Get rid of the pointer
 		this.pointer.X = -20;
 		this.pointer.Y = -20;
+		this.pointer.buttons = { Lmb: 0, Rmb: 0, Mmb: 0, Su: 0, Sd: 0 };
 		this.blitMouse();
 	}
 
@@ -183,6 +195,12 @@ class RFB {
 	applyPointerUpdate(pdata) {
 		this.pointer.X = pdata.X;
 		this.pointer.Y = pdata.Y;
+
+		for ( let k in this.pointer.buttons ) {
+			if ( pdata.hasOwnProperty(k) ) {
+				this.pointer.buttons[k] = pdata[k];
+			}
+		}
 	}
 
 	resizeSpriteLayer() {
@@ -198,6 +216,16 @@ class RFB {
 		this.pointer.ctx.beginPath();
 		this.pointer.ctx.ellipse(this.pointer.X, this.pointer.Y, 3, 3, 0, 0, Math.PI*2);
 		this.pointer.ctx.fill();
+
+		for ( let k in this.pointer.buttons ) {
+			if ( this.pointer.indicators[k] ) {
+				if ( this.pointer.buttons[k] ) {
+					this.pointer.indicators[k].setAttribute("fill", "#eb795c");
+				} else {
+					this.pointer.indicators[k].removeAttribute("fill");
+				}
+			}
+		}
 	}
 }
 
