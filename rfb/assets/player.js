@@ -92,11 +92,20 @@ class RFB {
 		window.addEventListener("resize", () => this.resizeSpriteLayer());
 		this.resizeSpriteLayer();
 
+		let hashtime = 0.0;
+		if ( window.location.hash.length > 3 && window.location.hash.substr(0,3) == "#t=" ) {
+			hashtime = parseFloat(window.location.hash.substr(3));
+		}
+
 		this.Reset();
 		this.Pause();
 
-		this.powerIndicator.style.backgroundColor = null;
-		this.powerIndicator.style.boxShadow = null;
+		if ( hashtime > 0.0 ) {
+			this.setTime(hashtime * 1000.0);
+		} else {
+			this.powerIndicator.style.backgroundColor = null;
+			this.powerIndicator.style.boxShadow = null;
+		}
 
 		this.playbutton.focus();
 	}
@@ -173,6 +182,8 @@ class RFB {
 
 	setTime( time ) {
 		this.currentTime = time;
+
+		window.location.hash = "#t=" + (time/1000.0).toFixed(2);
 
 		let i, n = 0;
 		for ( i = 0; i < this.events.length; i++ ) {
