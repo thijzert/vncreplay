@@ -108,6 +108,7 @@ class RFB {
 		let tnew = this.currentTime + ( time - this.lastFrame ) * parseFloat(this.speedknob.value);
 		if ( tnew > this.tmax ) {
 			tnew = this.tmax;
+			this.Pause();
 		}
 		this.setTime(tnew);
 
@@ -125,7 +126,7 @@ class RFB {
 		let i, n = 0;
 		for ( i = 0; i < this.events.length; i++ ) {
 			if ( this.events[i].time < time ) {
-				n = i;
+				n = i+1;
 			}
 		}
 		this.setEventIndex(n);
