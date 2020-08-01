@@ -1,12 +1,10 @@
 package rfb
 
 import (
+	"fmt"
 	"log"
 	"time"
 )
-
-// If your pcap spans more than 70 years, you have much bigger problems than this tool not working properly.
-const aVeryLongTimeIndeed time.Duration = 70 * 365 * 24 * time.Hour
 
 type timeindex struct {
 	t time.Duration
@@ -17,6 +15,7 @@ type timedBuffer struct {
 	buf         []byte
 	timingDirty bool
 	timing      []timeindex
+	tmax        time.Duration
 	index       int
 }
 
@@ -42,8 +41,13 @@ func (tb *timedBuffer) Add(t time.Duration, offset int, buf []byte) error {
 		tb.buf = append(tb.buf, buf...)
 	} else {
 		tb.timingDirty = true
-		log.Fatalf("sequence mismatch: already have 0x%02x bytes; about to receive offset 0x%02x", len(tb.buf), offset)
+		return fmt.Errorf("sequence mismatch: already have 0x%02x bytes; about to receive offset 0x%02x (dealing with this has not been implemented)", len(tb.buf), offset)
 	}
+
+	if t > tb.tmax {
+		tb.tmax = t
+	}
+
 	return nil
 }
 
@@ -85,7 +89,8 @@ func (tb *timedBuffer) CurrentTime() time.Duration {
 			return rv
 		}
 	}
-	return aVeryLongTimeIndeed
+
+	return tb.tmax + 1*time.Millisecond
 }
 
 // Remaining returns the amount of remaining data
