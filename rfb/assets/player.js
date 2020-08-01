@@ -283,6 +283,7 @@ class RFB {
 		this.updateKeyboardIndicator(keycode, 1);
 
 		let named_keys = {
+			0x00a0: "&#x21b5;",
 			0xff08: "Bksp",
 			0xff09: "Tab",
 			0xff0d: "Enter",
@@ -331,6 +332,10 @@ class RFB {
 				key.innerText = keycode.toString(16);
 			}
 			this.readout.appendChild(key);
+
+			if ( keycode == 0x00a0 || keycode == 0xff0d ) {
+				this.readout.innerHTML += "\n";
+			}
 		}
 	}
 
