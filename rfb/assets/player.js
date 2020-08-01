@@ -12,6 +12,11 @@ class RFB {
 			Y: 0.0,
 			buttons: { Lmb: 0, Rmb: 0, Mmb: 0, Su: 0, Sd: 0 },
 			indicators: { Lmb: null, Rmb: null, Mmb: null, Su: null, Sd: null },
+			skin: {
+				img: null,
+				offsetX: 0,
+				offsetY: 0,
+			},
 			canvas: null,
 			ctx: null,
 		}
@@ -25,7 +30,7 @@ class RFB {
 			this.tmax = time;
 		}
 
-		if ( type != "pointer-skin" ) {
+		if ( type != "?" ) {
 			this.events.push({type, time, data});
 		}
 	}
@@ -207,6 +212,8 @@ class RFB {
 			this.applyFramebuffer(event.data);
 		} else if ( event.type == "pointerupdate" ) {
 			this.applyPointerUpdate(event.data);
+		} else if ( event.type == "pointer-skin" ) {
+			this.applyPointerSkin(event.data);
 		} else if ( event.type == "keypress" ) {
 			this.applyKeyPress(event.data);
 		} else if ( event.type == "keyrelease" ) {
@@ -220,6 +227,21 @@ class RFB {
 		let img = document.getElementById(fbdata.Id);
 		if ( img ) {
 			this.ctx.drawImage(img, 0, 0);
+		}
+	}
+
+	applyPointerSkin(skin) {
+		if ( skin.Default == 1 ) {
+			this.pointer.skin.img = null;
+		}
+		if ( typeof skin.Id == "string" ) {
+			this.pointer.skin.img = document.getElementById(skin.Id);
+		}
+		if ( typeof skin.X == "number" ) {
+			this.pointer.skin.offsetX = skin.X;
+		}
+		if ( typeof skin.Y == "number" ) {
+			this.pointer.skin.offsetY = skin.Y;
 		}
 	}
 
@@ -347,6 +369,12 @@ class RFB {
 			if ( this.pointer.indicators[k] ) {
 				this.updateIndicatorState(this.pointer.indicators[k], this.pointer.buttons[k]);
 			}
+		}
+
+		if ( this.pointer.skin.img ) {
+			let x = this.pointer.X - this.pointer.skin.offsetX;
+			let y = this.pointer.Y - this.pointer.skin.offsetY;
+			this.pointer.ctx.drawImage(this.pointer.skin.img, x, y);
 		}
 	}
 }
