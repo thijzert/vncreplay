@@ -371,26 +371,20 @@ class RFB {
 	blitMouse() {
 		this.pointer.ctx.clearRect(0, 0, this.width, this.height);
 
-		this.pointer.ctx.lineWidth = 0;
-		this.pointer.ctx.fillStyle = 'rgba( 255, 30, 30, 0.7 )';
-		this.pointer.ctx.beginPath();
-		this.pointer.ctx.ellipse(this.pointer.X, this.pointer.Y, 3, 3, 0, 0, Math.PI*2);
-		this.pointer.ctx.fill();
-
 		for ( let click of this.pointer.clicks ) {
 			this.drawClick(click);
-		}
-
-		for ( let k in this.pointer.buttons ) {
-			if ( this.pointer.indicators[k] ) {
-				this.updateIndicatorState(this.pointer.indicators[k], this.pointer.buttons[k]);
-			}
 		}
 
 		if ( this.pointer.skin.img ) {
 			let x = this.pointer.X - this.pointer.skin.offsetX;
 			let y = this.pointer.Y - this.pointer.skin.offsetY;
 			this.pointer.ctx.drawImage(this.pointer.skin.img, x, y);
+		}
+
+		for ( let k in this.pointer.buttons ) {
+			if ( this.pointer.indicators[k] ) {
+				this.updateIndicatorState(this.pointer.indicators[k], this.pointer.buttons[k]);
+			}
 		}
 	}
 
