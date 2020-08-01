@@ -9,17 +9,20 @@ import (
 	"time"
 )
 
+// An RFB represents a captured VNC session
 type RFB struct {
 	htmlOut      io.WriteCloser
 	jsOut        *bytes.Buffer
 	clientBuffer *timedBuffer
 	serverBuffer *timedBuffer
+	timeOffset   float64
 	width        int
 	height       int
 	pixelFormat  PixelFormat
 	name         string
 }
 
+// New instatiates a new RFB struct
 func New(out io.WriteCloser) (*RFB, error) {
 	var jsout bytes.Buffer
 	var rfb = &RFB{
@@ -48,10 +51,12 @@ func New(out io.WriteCloser) (*RFB, error) {
 	return rfb, nil
 }
 
+// ClientBytes adds a frame of bytes to the Client-side buffer
 func (rfb *RFB) ClientBytes(t time.Duration, offset int, buf []byte) error {
 	return rfb.clientBuffer.Add(t, offset, buf)
 }
 
+// ServerBytes adds a frame of bytes to the Server-side buffer
 func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
 	return rfb.serverBuffer.Add(t, offset, buf)
 }
@@ -68,6 +73,7 @@ func getAssets(names ...string) ([][]byte, error) {
 	return rv, nil
 }
 
+// Close finalizes the replay of the VNC session
 func (rfb *RFB) Close() error {
 	htmlFragments, err := getAssets("victrola.unpacked.3.html", "victrola.unpacked.4.html")
 	if err != nil {
@@ -170,6 +176,9 @@ func (rfb *RFB) consumeHandshake() error {
 		return fmt.Errorf("handshake failed: client rejected")
 	}
 
+	// The 'start time' of the replay will be the time at which the final packet in the handshake is sent
+	rfb.timeOffset = floatTime(rfb.serverBuffer.CurrentTime())
+
 	// Server init
 	sInit := rfb.nextS(24)
 	if len(sInit) != 24 {
@@ -200,11 +209,11 @@ func (rfb *RFB) nextC(l int) []byte {
 func (rfb *RFB) pushEvent(eventType string, tEvent time.Duration, eventData interface{}) {
 
 	// Time since start in milliseconds, rounded to 1 decimal
-	t := float64((tEvent.Microseconds()+50)/100) / 10.0
+	t := floatTime(tEvent)
 
 	var b bytes.Buffer
 	var e = json.NewEncoder(&b)
-	e.Encode([]interface{}{eventType, t, eventData})
+	e.Encode([]interface{}{eventType, t - rfb.timeOffset, eventData})
 	s := b.Bytes()
 
 	fmt.Fprintf(rfb.jsOut, "rfb.PushEvent(%s);\n", s[1:len(s)-2])
@@ -216,4 +225,8 @@ func rInt(b []byte) int {
 		rv = rv<<8 | int(c)
 	}
 	return rv
+}
+
+func floatTime(t time.Duration) float64 {
+	return float64((int64(t.Microseconds())+50)/100) / 10.0
 }
