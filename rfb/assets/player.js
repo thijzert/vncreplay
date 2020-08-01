@@ -15,6 +15,8 @@ class RFB {
 			canvas: null,
 			ctx: null,
 		}
+		this.keycaps = null;
+		this.readout = null;
 		this.events = [];
 	}
 
@@ -23,7 +25,7 @@ class RFB {
 			this.tmax = time;
 		}
 
-		if ( type != "keypress" && type != "keyrelease" ) {
+		if ( type != "pointer-skin" ) {
 			this.events.push({type, time, data});
 		}
 	}
@@ -42,7 +44,7 @@ class RFB {
 		this.pointer.canvas.width = this.width;
 		this.pointer.ctx = this.pointer.canvas.getContext("2d");
 
-		let mousesvg = elt.querySelector(".-vic-iodevices .-vic-mouse");
+		let mousesvg = elt.querySelector(".-vic-iodevices .-vic-mouse svg");
 		if ( mousesvg ) {
 			this.pointer.indicators.Lmb = mousesvg.querySelector(".Lmb");
 			this.pointer.indicators.Mmb = mousesvg.querySelector(".Mmb");
@@ -50,6 +52,12 @@ class RFB {
 			this.pointer.indicators.Su = mousesvg.querySelector(".Su");
 			this.pointer.indicators.Sd = mousesvg.querySelector(".Sd");
 		}
+		let kbdsvg = elt.querySelector(".-vic-iodevices .-vic-keyboard svg");
+		if ( kbdsvg ) {
+			this.keycaps = kbdsvg.querySelectorAll("path.keycap");
+		}
+
+		this.readout = elt.querySelector(".-vic-iodevices .-vic-readout");
 
 		this.playbutton = elt.querySelector(".-vic-controls .-playpause");
 		this.playbutton.innerText = "";
@@ -88,11 +96,15 @@ class RFB {
 		this.ctx.fillStyle = 'rgb( 0, 0, 0 )';
 		this.ctx.fillRect( 0, 0, this.width, this.height );
 
+		this.readout.innerHTML = "";
+
 		// Get rid of the pointer
 		this.pointer.X = -20;
 		this.pointer.Y = -20;
 		this.pointer.buttons = { Lmb: 0, Rmb: 0, Mmb: 0, Su: 0, Sd: 0 };
 		this.blitMouse();
+
+		this.resetKeyboardIndicators();
 	}
 
 	Play() {
@@ -184,6 +196,12 @@ class RFB {
 			this.applyFramebuffer(event.data);
 		} else if ( event.type == "pointerupdate" ) {
 			this.applyPointerUpdate(event.data);
+		} else if ( event.type == "keypress" ) {
+			this.applyKeyPress(event.data);
+		} else if ( event.type == "keyrelease" ) {
+			this.applyKeyRelease(event.data);
+		} else {
+			console.error("Event ", event.type, " has not been implemented");
 		}
 	}
 
@@ -205,6 +223,101 @@ class RFB {
 		}
 	}
 
+	applyKeyPress(keyevent) {
+		const keycode = keyevent.Key;
+		this.updateKeyboardIndicator(keycode, 1);
+
+		let named_keys = {
+			0xff08: "Bksp",
+			0xff09: "Tab",
+			0xff0d: "Enter",
+			0xff1b: "Esc",
+			0xff63: "Ins",
+			0xffff: "Del",
+			0xff50: "Home",
+			0xff57: "End",
+			0xff55: "PgUp",
+			0xff56: "PgDn",
+			0xff51: "Left",
+			0xff52: "Up",
+			0xff53: "Right",
+			0xff54: "Down",
+			0xffbe: "F1",
+			0xffbf: "F2",
+			0xffc0: "F3",
+			0xffc1: "F4",
+			0xffc2: "F5",
+			0xffc3: "F6",
+			0xffc4: "F7",
+			0xffc5: "F8",
+			0xffc6: "F9",
+			0xffc7: "F10",
+			0xffc8: "F11",
+			0xffc9: "F12",
+			0xffe3: "Ctrl",
+			0xffe4: "Ctrl",
+			0xffe7: "AltGr",
+			0xffe8: "AltGr",
+			0xffe9: "Alt",
+			0xffea: "Alt",
+		};
+
+		if ( keycode >= 32 && keycode <= 126 ) {
+			// Printable character
+			this.readout.innerHTML += String.fromCharCode(keycode);
+		} else if ( keycode == 0xffe1 || keycode == 0xffe1 ) {
+			// Ignore shift keys - they're reflected in the char code
+		} else {
+			let key = document.createElement("span");
+			key.classList.add("-keysym");
+			if ( named_keys.hasOwnProperty(keycode) ) {
+				key.innerText = named_keys[keycode];
+			} else {
+				key.innerText = keycode.toString(16);
+			}
+			this.readout.appendChild(key);
+		}
+	}
+
+	applyKeyRelease(keyevent) {
+		const keycode = keyevent.Key;
+		this.updateKeyboardIndicator(keycode, 0);
+	}
+
+	updateKeyboardIndicator(keycode, state) {
+		for ( let keycap of this.keycaps ) {
+			let nkcc = keycap.dataset["keycode"];
+			let skcc = keycap.dataset["shiftcode"];
+
+			if ( nkcc && nkcc.length > 2 ) {
+				nkcc = parseInt( nkcc.substr(2), 16 );
+				if ( nkcc == keycode ) {
+					this.updateIndicatorState(keycap, state);
+				}
+			}
+			if ( skcc && skcc.length > 2 ) {
+				skcc = parseInt( skcc.substr(2), 16 );
+				if ( skcc == keycode ) {
+					this.updateIndicatorState(keycap, state);
+				}
+			}
+		}
+	}
+
+	updateIndicatorState(indicator, state) {
+		if ( state ) {
+			indicator.setAttribute("fill", "#eb795c");
+		} else {
+			indicator.removeAttribute("fill");
+		}
+	}
+
+	resetKeyboardIndicators() {
+		for ( let keycap of this.keycaps ) {
+			this.updateIndicatorState(keycap, 0);
+		}
+	}
+
 	resizeSpriteLayer() {
 		let rect = this.canvas.getBoundingClientRect();
 		this.pointer.canvas.style.width = rect.width + "px";
@@ -221,11 +334,7 @@ class RFB {
 
 		for ( let k in this.pointer.buttons ) {
 			if ( this.pointer.indicators[k] ) {
-				if ( this.pointer.buttons[k] ) {
-					this.pointer.indicators[k].setAttribute("fill", "#eb795c");
-				} else {
-					this.pointer.indicators[k].removeAttribute("fill");
-				}
+				this.updateIndicatorState(this.pointer.indicators[k], this.pointer.buttons[k]);
 			}
 		}
 	}

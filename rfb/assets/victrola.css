@@ -133,6 +133,8 @@
 	padding: .75rem;
 	border-radius: .5rem;
 	width: 100%;
+
+	font-family: "Fira Mono", FiraMono, monospace;
 }
 .victrola .-vic-iodevices .-vic-readout .-keysym
 {
@@ -142,4 +144,5 @@
 	padding: 0.125rem 0.25rem;
 	margin: 0 0.125rem;
 	border-radius: 0.25rem;
+	font-family: sans-serif;
 }

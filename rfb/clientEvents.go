@@ -46,7 +46,7 @@ func (rfb *RFB) consumeClientEvent() error {
 			rfb.pushEvent("keypress", tEvent, keypress{Key: key})
 		} else {
 			fmt.Fprintf(rfb.htmlOut, "<div>release key <tt>%c</tt> (0x%2x)</div>\n", key, key)
-			rfb.pushEvent("keypress", tEvent, keypress{Key: key})
+			rfb.pushEvent("keyrelease", tEvent, keypress{Key: key})
 		}
 	} else if messageType == 5 {
 		buf := rfb.nextC(6)
