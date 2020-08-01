@@ -62,6 +62,9 @@ class RFB {
 
 		this.speedknob = elt.querySelector(".-vic-controls .-speedknob");
 
+		window.addEventListener("resize", () => this.resizeSpriteLayer());
+		this.resizeSpriteLayer();
+
 		this.Reset();
 		this.Pause();
 	}
@@ -182,6 +185,12 @@ class RFB {
 		this.pointer.Y = pdata.Y;
 	}
 
+	resizeSpriteLayer() {
+		let rect = this.canvas.getBoundingClientRect();
+		this.pointer.canvas.style.width = rect.width + "px";
+		this.pointer.canvas.style.height = rect.height + "px";
+	}
+
 	blitMouse() {
 		this.pointer.ctx.clearRect(0, 0, this.width, this.height);
 
@@ -189,39 +198,6 @@ class RFB {
 		this.pointer.ctx.beginPath();
 		this.pointer.ctx.ellipse(this.pointer.X, this.pointer.Y, 3, 3, 0, 0, Math.PI*2);
 		this.pointer.ctx.fill();
-	}
-
-	createSpeedKnob() {
-		let o;
-		let rv = document.createElement("select");
-
-		o = document.createElement("option");
-		o.value = 0.25;
-		o.innerHTML = "&#x1F40C (0.25×)";
-		rv.appendChild(o);
-
-		o = document.createElement("option");
-		o.value = 0.5;
-		o.innerHTML = "&#x1F422 (0.5×)";
-		rv.appendChild(o);
-
-		o = document.createElement("option");
-		o.value = 1.0;
-		o.innerHTML = "&#x1F6B6 (1.0×)";
-		o.selected = true;
-		rv.appendChild(o);
-
-		o = document.createElement("option");
-		o.value = 1.5;
-		o.innerHTML = "&#x1F407 (1.5×)";
-		rv.appendChild(o);
-
-		o = document.createElement("option");
-		o.value = 3.0;
-		o.innerHTML = "&#x1F406 (3.0×)";
-		rv.appendChild(o);
-
-		return rv;
 	}
 }
 
