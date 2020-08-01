@@ -59,6 +59,8 @@ class RFB {
 
 		this.readout = elt.querySelector(".-vic-iodevices .-vic-readout");
 
+		this.powerIndicator = elt.querySelector(".-vic-indicator.-power");
+
 		this.playbutton = elt.querySelector(".-vic-controls .-playpause");
 		this.playbutton.innerText = "";
 		this.playbutton.addEventListener("click", () => this.TogglePlaying());
@@ -87,6 +89,9 @@ class RFB {
 		this.Reset();
 		this.Pause();
 
+		this.powerIndicator.style.backgroundColor = null;
+		this.powerIndicator.style.boxShadow = null;
+
 		this.playbutton.focus();
 	}
 
@@ -110,6 +115,8 @@ class RFB {
 	Play() {
 		this.playing = true;
 		this.playbutton.innerText = "\u258c\u258c";
+		this.powerIndicator.style.backgroundColor = "#31ec57";
+		this.powerIndicator.style.boxShadow = "0 0 0.5rem rgb(192,255,192)";
 
 		window.requestAnimationFrame( (time) => {
 			this.lastFrame = time;
@@ -120,6 +127,8 @@ class RFB {
 	Pause() {
 		this.playing = false;
 		this.playbutton.innerText = "\u25b6";
+		this.powerIndicator.style.backgroundColor = "#f9ad4d";
+		this.powerIndicator.style.boxShadow = "0 0 0.5rem rgb(234,219,191)";
 	}
 
 	TogglePlaying() {
@@ -142,7 +151,9 @@ class RFB {
 		this.setTime(tnew);
 
 		this.lastFrame = time;
-		window.requestAnimationFrame( (t) => this.nextFrame(t) );
+		if ( this.playing ) {
+			window.requestAnimationFrame( (t) => this.nextFrame(t) );
+		}
 	}
 
 	seek() {
