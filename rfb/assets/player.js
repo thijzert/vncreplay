@@ -75,7 +75,7 @@ class RFB {
 		this.seekbar.type = "range";
 		this.seekbar.min = 0;
 		this.seekbar.max = this.tmax;
-		this.seekbar.step = 0.1;
+		this.seekbar.step = 20;
 		this.seekbar.value = 0;
 
 		let seek = () => this.seek();
