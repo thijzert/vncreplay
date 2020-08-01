@@ -11,6 +11,9 @@ import (
 
 // An RFB represents a captured VNC session
 type RFB struct {
+	// EmbedAssets controls whether static assets should be linked or embedded in the output HTML
+	EmbedAssets  bool
+	initialised  bool
 	htmlOut      io.WriteCloser
 	jsOut        *bytes.Buffer
 	clientBuffer *timedBuffer
@@ -26,10 +29,19 @@ type RFB struct {
 func New(out io.WriteCloser) (*RFB, error) {
 	var jsout bytes.Buffer
 	var rfb = &RFB{
+		initialised:  false,
 		htmlOut:      out,
 		jsOut:        &jsout,
 		clientBuffer: newBuffer(),
 		serverBuffer: newBuffer(),
+	}
+
+	return rfb, nil
+}
+
+func (rfb *RFB) initialise() error {
+	if rfb.initialised {
+		return nil
 	}
 
 	htmlFragments, err := getAssets(
@@ -38,26 +50,37 @@ func New(out io.WriteCloser) (*RFB, error) {
 		"victrola.css",
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	rfb.htmlOut.Write(htmlFragments[0])
 
 	// Write stuff in the header
-	fmt.Fprintf(rfb.htmlOut, "<style>%s</style>\n", htmlFragments[2])
+	if rfb.EmbedAssets {
+		fmt.Fprintf(rfb.htmlOut, "<style>%s</style>\n", htmlFragments[2])
+	} else {
+		fmt.Fprintf(rfb.htmlOut, "<link rel=\"stylesheet\" href=\"victrola.css\" />\n")
+	}
 
 	rfb.htmlOut.Write(htmlFragments[1])
 
-	return rfb, nil
+	rfb.initialised = true
+	return nil
 }
 
 // ClientBytes adds a frame of bytes to the Client-side buffer
 func (rfb *RFB) ClientBytes(t time.Duration, offset int, buf []byte) error {
+	if !rfb.initialised {
+		rfb.initialise()
+	}
 	return rfb.clientBuffer.Add(t, offset, buf)
 }
 
 // ServerBytes adds a frame of bytes to the Server-side buffer
 func (rfb *RFB) ServerBytes(t time.Duration, offset int, buf []byte) error {
+	if !rfb.initialised {
+		rfb.initialise()
+	}
 	return rfb.serverBuffer.Add(t, offset, buf)
 }
 
@@ -76,11 +99,6 @@ func getAssets(names ...string) ([][]byte, error) {
 // Close finalizes the replay of the VNC session
 func (rfb *RFB) Close() error {
 	htmlFragments, err := getAssets("victrola.unpacked.3.html", "victrola.unpacked.4.html")
-	if err != nil {
-		return err
-	}
-
-	playerJS, err := getAsset("player.js")
 	if err != nil {
 		return err
 	}
@@ -131,12 +149,20 @@ func (rfb *RFB) Close() error {
 
 	rfb.htmlOut.Write(htmlFragments[0])
 
-	fmt.Fprintf(rfb.htmlOut, "<script>")
-	rfb.htmlOut.Write(playerJS)
-	fmt.Fprintf(rfb.htmlOut, "</script>")
+	if rfb.EmbedAssets {
+		playerJS, err := getAsset("player.js")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(rfb.htmlOut, "<script>")
+		rfb.htmlOut.Write(playerJS)
+		fmt.Fprintf(rfb.htmlOut, "</script>\n")
+	} else {
+		fmt.Fprintf(rfb.htmlOut, "<script src=\"player.js\"></script>\n")
+	}
 	fmt.Fprintf(rfb.htmlOut, "<script>")
 	rfb.jsOut.WriteTo(rfb.htmlOut)
-	fmt.Fprintf(rfb.htmlOut, "</script>")
+	fmt.Fprintf(rfb.htmlOut, "</script>\n")
 
 	log.Printf("Replay complete.")
 	return nil

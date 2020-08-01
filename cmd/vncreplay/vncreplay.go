@@ -15,8 +15,10 @@ import (
 
 func main() {
 	var inFile, outFile string
+	var embedAssets bool
 	flag.StringVar(&inFile, "i", "", "Input file")
 	flag.StringVar(&outFile, "o", "replay.html", "Output file")
+	flag.BoolVar(&embedAssets, "embedAssets", true, "Embed static assets in the output HTML")
 	flag.Parse()
 
 	if inFile == "" {
@@ -35,6 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	replay.EmbedAssets = embedAssets
 	defer replay.Close()
 
 	var handle *pcap.Handle
