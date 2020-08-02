@@ -68,7 +68,16 @@ func (tb *timedBuffer) Consume(l int) []byte {
 func (tb *timedBuffer) Dump() int {
 	rv := tb.Remaining()
 
-	// TODO: make smarter
+	// Try to find the next packet boundary
+	if !tb.timingDirty {
+		for _, tc := range tb.timing {
+			if tc.i <= tb.index {
+				continue
+			}
+			rv = tc.i - tb.index
+			break
+		}
+	}
 
 	tb.index += rv
 	return rv
