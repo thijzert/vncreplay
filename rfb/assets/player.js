@@ -209,10 +209,9 @@ class RFB {
 		for ( let i = this.eventIndex; i < idx; i++ ) {
 			this.applyEvent(i);
 		}
-		if ( idx > this.eventIndex ) {
-			this.blitMouse();
-		}
 		this.eventIndex = idx;
+
+		this.blitMouse();
 
 		this.seekbarLabel.innerText = "event " + idx;
 
