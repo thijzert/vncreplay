@@ -14,8 +14,9 @@ Usage
 -----
 The main executable takes an input and output file as its arguments.
 The input file should be a PCAP file (of tcpdump or Wireshark fame), and the output file will be a standalone HTML file one can open in any modern browser.
+(In order to help the tool along a bit, make sure the pcap is isolated to the TCP stream containing the VNC capture.)
 
-For most use cases, this will do:
+After that, for most use cases, this will do:
 
 ```bash
 vncreplay -o player.html  path/to/capture.pcap
