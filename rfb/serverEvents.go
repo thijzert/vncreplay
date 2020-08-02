@@ -19,6 +19,10 @@ type pointerSkin struct {
 	X, Y    int
 }
 
+type serverCutText struct {
+	Text string
+}
+
 func (rfb *RFB) readAllServerBytes() error {
 	for rfb.serverBuffer.Remaining() > 0 {
 		if err := rfb.consumeServerEvent(); err != nil {
@@ -28,7 +32,7 @@ func (rfb *RFB) readAllServerBytes() error {
 	return nil
 }
 func (rfb *RFB) consumeServerEvent() error {
-	// tEvent := rfb.serverBuffer.CurrentTime()
+	tEvent := rfb.serverBuffer.CurrentTime()
 	oldOffset := rfb.serverBuffer.CurrentOffset()
 	messageType := rInt(rfb.serverBuffer.Peek(1))
 	if messageType == 0 {
@@ -42,8 +46,9 @@ func (rfb *RFB) consumeServerEvent() error {
 	} else if messageType == 3 {
 		buf := rfb.nextS(8)
 		cutLen := rInt(buf[4:])
-		cutText := rfb.nextS(cutLen)
+		cutText := string(rfb.nextS(cutLen))
 		fmt.Fprintf(rfb.htmlOut, "<div>Server Cut Text: <tt>%s</tt></div>\n", cutText)
+		rfb.pushEvent("server-cut-text", tEvent, serverCutText{Text: cutText})
 	} else if messageType == 111 {
 		// Ignore this byte
 		rfb.serverBuffer.Consume(1)

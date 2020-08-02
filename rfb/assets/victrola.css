@@ -146,3 +146,28 @@
 	border-radius: 0.25rem;
 	font-family: sans-serif;
 }
+.victrola .-vic-iodevices .-vic-readout .-clipboard
+{
+	border: 2px solid #b2b2b2;
+	padding: 0.25rem;
+	margin-top: 0.75rem;
+	position: relative;
+}
+.victrola .-vic-iodevices .-vic-readout .-clipboard::before
+{
+	position: absolute;
+	top: -0.625rem;
+	left: 0.5rem;
+	display: block;
+	background-color: #54a3e4;
+	color: white;
+	font-size: 60%;
+	padding: 0.125rem 0.25rem;
+	margin: 0 0.125rem;
+	border-radius: 0.25rem;
+	font-family: sans-serif;
+}
+.victrola .-vic-iodevices .-vic-readout .-clipboard.-cut::before
+{
+	content: "cut";
+}

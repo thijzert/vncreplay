@@ -31,9 +31,7 @@ class RFB {
 			this.tmax = time;
 		}
 
-		if ( type != "?" ) {
-			this.events.push({type, time, data});
-		}
+		this.events.push({type, time, data});
 	}
 
 	Render(elt) {
@@ -229,6 +227,8 @@ class RFB {
 			this.applyFramebuffer(event.data, event.time);
 		} else if ( event.type == "pointerupdate" ) {
 			this.applyPointerUpdate(event.data, event.time);
+		} else if ( event.type == "server-cut-text" ) {
+			this.applyCutText(event.data, event.time);
 		} else if ( event.type == "pointer-skin" ) {
 			this.applyPointerSkin(event.data, event.time);
 		} else if ( event.type == "keypress" ) {
@@ -260,6 +260,18 @@ class RFB {
 		if ( typeof skin.Y == "number" ) {
 			this.pointer.skin.offsetY = skin.Y;
 		}
+	}
+
+	applyCutText(cut) {
+		this.appendClip(cut.Text, "-cut");
+	}
+
+	appendClip(text, clipType) {
+		let clip = document.createElement("div");
+		clip.classList.add("-clipboard");
+		clip.classList.add(clipType);
+		clip.innerText = text;
+		this.readout.appendChild(clip);
 	}
 
 	applyPointerUpdate(pdata, time) {
