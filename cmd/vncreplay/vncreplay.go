@@ -25,7 +25,7 @@ func main() {
 		if len(flag.Args()) > 0 {
 			inFile = flag.Args()[0]
 		} else {
-			log.Fatalf("Usage: replay [-o OUTFILE] INFILE")
+			log.Fatalf("Usage: %s [-o OUTFILE] INFILE", os.Args[0])
 		}
 	}
 
