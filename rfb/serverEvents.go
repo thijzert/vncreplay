@@ -35,10 +35,10 @@ func (rfb *RFB) consumeServerEvent() error {
 		rfb.nextS(rfb.decodeFrameBufferUpdate())
 	} else if messageType == 1 {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: SetColourMapEntries</div>\n")
-		rfb.serverBuffer.Consume(rfb.serverBuffer.Remaining())
+		rfb.serverBuffer.Dump()
 	} else if messageType == 2 {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: Bell</div>\n")
-		rfb.serverBuffer.Consume(rfb.serverBuffer.Remaining())
+		rfb.serverBuffer.Dump()
 	} else if messageType == 3 {
 		buf := rfb.nextS(8)
 		cutLen := rInt(buf[4:])
@@ -49,7 +49,7 @@ func (rfb *RFB) consumeServerEvent() error {
 		rfb.serverBuffer.Consume(1)
 	} else {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown server packet type %d at offset %8x - ignoring all %d bytes</div>\n", messageType, rfb.serverBuffer.CurrentOffset(), rfb.serverBuffer.Remaining())
-		rfb.serverBuffer.Consume(rfb.serverBuffer.Remaining())
+		rfb.serverBuffer.Dump()
 	}
 	if messageType != 111 {
 		length := rfb.serverBuffer.CurrentOffset() - oldOffset

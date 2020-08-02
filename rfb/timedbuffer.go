@@ -51,7 +51,8 @@ func (tb *timedBuffer) Add(t time.Duration, offset int, buf []byte) error {
 	return nil
 }
 
-// Consume returns a slice of l bytes from the buffer, and advances its internal pointer
+// Consume returns a slice of l bytes from the buffer, and advances its
+// internal pointer
 func (tb *timedBuffer) Consume(l int) []byte {
 	start := tb.index
 	if (start + l) > len(tb.buf) {
@@ -62,7 +63,19 @@ func (tb *timedBuffer) Consume(l int) []byte {
 	return tb.buf[start : start+l]
 }
 
-// Peek returns a slice of l bytes from the buffer but does not advance the internal pointer
+// Dump discards bytes from the buffer until the next logical start point, or
+// until the end, whichever comes first.
+func (tb *timedBuffer) Dump() int {
+	rv := tb.Remaining()
+
+	// TODO: make smarter
+
+	tb.index += rv
+	return rv
+}
+
+// Peek returns a slice of l bytes from the buffer but does not advance the
+// internal pointer
 func (tb *timedBuffer) Peek(l int) []byte {
 	if (tb.index + l) > len(tb.buf) {
 		l = len(tb.buf) - tb.index
@@ -76,7 +89,8 @@ func (tb *timedBuffer) CurrentOffset() int {
 	return tb.index
 }
 
-// CurrentTime returns the approximate timing of the next byte at the internal pointer
+// CurrentTime returns the approximate timing of the next byte at the internal
+// pointer
 func (tb *timedBuffer) CurrentTime() time.Duration {
 	if tb.timingDirty {
 		log.Fatalf("Todo: sorting")

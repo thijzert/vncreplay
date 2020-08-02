@@ -64,13 +64,13 @@ func (rfb *RFB) consumeClientEvent() error {
 		rfb.pushEvent("pointerupdate", tEvent, evt)
 	} else if messageType == 6 {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-todo\">TODO: ClientCutText</div>\n")
-		rfb.clientBuffer.Consume(rfb.clientBuffer.Remaining())
+		rfb.clientBuffer.Dump()
 	} else if messageType == 111 {
 		// Ignore this byte
 		rfb.clientBuffer.Consume(1)
 	} else {
 		fmt.Fprintf(rfb.htmlOut, "<div class=\"-error\">Unknown client packet type %d - ignoring all %d bytes</div>\n", messageType, rfb.clientBuffer.Remaining())
-		rfb.clientBuffer.Consume(rfb.clientBuffer.Remaining())
+		rfb.clientBuffer.Dump()
 	}
 
 	return nil
