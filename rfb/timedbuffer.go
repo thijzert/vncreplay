@@ -40,8 +40,12 @@ func (tb *timedBuffer) Add(t time.Duration, offset int, buf []byte) error {
 		tb.timing = append(tb.timing, timeindex{t, len(tb.buf)})
 		tb.buf = append(tb.buf, buf...)
 	} else {
-		tb.timingDirty = true
-		return fmt.Errorf("sequence mismatch: already have 0x%02x bytes; about to receive offset 0x%02x (dealing with this has not been implemented)", len(tb.buf), offset)
+		// TCP retransmission, or out of order delivery
+		if len(tb.buf[offset:]) < len(buf) {
+			tb.timingDirty = true
+			return fmt.Errorf("sequence mismatch: already have 0x%02x bytes; about to receive offset 0x%02x (dealing with this has not been implemented)", len(tb.buf), offset)
+		}
+		copy(tb.buf[offset:], buf)
 	}
 
 	if t > tb.tmax {
