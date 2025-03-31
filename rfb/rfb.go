@@ -182,7 +182,9 @@ func (rfb *RFB) consumeHandshake() error {
 	// Client security choice
 	sec := rInt(rfb.nextC(1))
 
-	if sec == 2 {
+	if sec == 1 {
+		// No authentication
+	} else if sec == 2 {
 		// VNC authentication
 		_ = rfb.nextS(16)
 		_ = rfb.nextC(16)

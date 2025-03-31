@@ -1,10 +1,13 @@
 package rfb
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
+	"image/jpeg"
 	"image/png"
 	"log"
 )
@@ -125,11 +128,10 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image, enc
 	enctype = int32(uint32(rInt(buf[8:12])))
 	// log.Printf("next rect is a %dx%d rectangle at position %d,%d enctype %02x (%d)", w, h, x, y, enctype, enctype)
 
-	rv := image.NewRGBA(image.Rect(x, y, x+w, y+h))
-
 	if enctype == 0 || enctype == -239 {
 		// Raw encoding
 
+		rv := image.NewRGBA(image.Rect(x, y, x+w, y+h))
 		offset := 12
 		rectEnd := 12 + h*w*ppf.BytesPerPixel()
 		bitmaskOffset := 0
@@ -166,10 +168,70 @@ func (ppf PixelFormat) nextRect(buf []byte) (bytesRead int, img image.Image, enc
 		}
 
 		return offset + bitmaskOffset, rv, enctype
+	} else if enctype == -232 {
+		// Pointer pos (pseudo)
+	} else if enctype == 7 {
+		// TightVNC
+		rectType := buf[12]
+
+		if rectType>>4 == 9 {
+			// JPEG
+			rectLength, rectLengthLength := compactLength(buf[13:16])
+			log.Printf("decode %d bytes of JPEG data", rectLength)
+
+			jimg, err := jpeg.Decode(bytes.NewReader(buf[13+rectLengthLength : 13+rectLengthLength+rectLength]))
+			if err != nil {
+				log.Printf("error decoding jpeg data: %v", err)
+				return 13 + rectLengthLength + rectLength, nil, enctype
+			}
+
+			b := image.Rect(x, y, x+w, y+h)
+			rv := image.NewRGBA(b)
+			draw.Draw(rv, b, jimg, jimg.Bounds().Min, draw.Over)
+			return 13 + rectLengthLength + rectLength, rv, enctype
+		} else if rectType>>4 == 5 && buf[13] == 1 {
+			// Basic/Paletted (todo)
+			paletteLength := int(buf[14]) + 1
+			rectLength, rectLengthLength := compactLength(buf[15+3*paletteLength:])
+			log.Printf("%d colours in palette; %d bytes image data", paletteLength, rectLength)
+			return 15 + 3*paletteLength + rectLengthLength + rectLength, nil, enctype
+		} else if rectType>>4 == 6 && buf[13] == 1 {
+			// Paletted (todo)
+			paletteLength := int(buf[14]) + 1
+			rectLength, rectLengthLength := compactLength(buf[15+3*paletteLength:])
+			log.Printf("%d colours in palette; %d bytes image data", paletteLength, rectLength)
+			return 15 + 3*paletteLength + rectLengthLength + rectLength, nil, enctype
+		} else if rectType>>4 == 8 {
+			// Rect fill
+			fillColour := color.RGBA{buf[13], buf[14], buf[15], 255}
+			log.Printf("solid fill with %02x%02x%02x", fillColour.R, fillColour.G, fillColour.B)
+
+			rv := image.NewRGBA(image.Rect(x, y, x+w, y+h))
+			for b := y; b < y+h; b++ {
+				for a := x; a < x+w; a++ {
+					rv.Set(a, b, fillColour)
+				}
+			}
+			return 16, rv, enctype
+		} else {
+			log.Printf("unknown tight rect type %d - ignoring rest of buffer", rectType>>4)
+			return len(buf), nil, enctype
+		}
 	} else {
-		log.Printf("Unknown encoding type - ignoring whole buffer")
+		log.Printf("Unknown encoding type %d - ignoring whole buffer", enctype)
 		return len(buf), nil, enctype
 	}
 
 	return 12, nil, 0
+}
+
+func compactLength(buf []byte) (length int, lengthLength int) {
+	if len(buf) > 0 && buf[0]>>7 == 0 {
+		return int(buf[0] & 0x7f), 1
+	} else if len(buf) > 1 && buf[0]>>7 == 1 && buf[1]>>7 == 0 {
+		return int(buf[1]&0x7f)<<7 | int(buf[0]&0x7f), 2
+	} else if len(buf) > 2 && buf[0]>>7 == 1 && buf[1]>>7 == 1 {
+		return int(buf[2])<<14 | int(buf[1]&0x7f)<<7 | int(buf[0]&0x7f), 3
+	}
+	return len(buf), 8
 }
