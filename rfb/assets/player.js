@@ -111,6 +111,7 @@ class RFB {
 	Reset() {
 		this.eventIndex = 0;
 		this.setTime(0);
+		this._updateLocationHash();
 		this.ctx.fillStyle = 'rgb( 0, 0, 0 )';
 		this.ctx.fillRect( 0, 0, this.width, this.height );
 
@@ -147,6 +148,7 @@ class RFB {
 		this.playbutton.innerText = "\u25b6";
 		this.powerIndicator.style.backgroundColor = "#f9ad4d";
 		this.powerIndicator.style.boxShadow = "0 0 0.5rem rgb(234,219,191)";
+		this._updateLocationHash();
 	}
 
 	TogglePlaying() {
@@ -176,12 +178,11 @@ class RFB {
 
 	seek() {
 		this.setTime(parseFloat(this.seekbar.value));
+		this._updateLocationHash();
 	}
 
 	setTime( time ) {
 		this.currentTime = time;
-
-		window.location.hash = "#t=" + (time/1000.0).toFixed(2);
 
 		let i, n = 0;
 		for ( i = 0; i < this.events.length; i++ ) {
@@ -200,6 +201,10 @@ class RFB {
 		if ( this.seekbar.value != time ) {
 			this.seekbar.value = time;
 		}
+	}
+
+	_updateLocationHash() {
+		window.location.hash = "#t=" + (this.currentTime/1000.0).toFixed(2);
 	}
 
 	setEventIndex(idx) {
@@ -421,7 +426,6 @@ class RFB {
 		const RADIUS = 50.0;
 
 		let trel = ( this.currentTime - click.time ) / DURATION;
-		console.log(trel);
 		if ( trel < 0.0 || trel > 1.0 ) {
 			return;
 		}
