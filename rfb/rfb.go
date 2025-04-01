@@ -23,6 +23,8 @@ type RFB struct {
 	height       int
 	pixelFormat  PixelFormat
 	name         string
+	zlibInputs   [4]bytes.Buffer
+	zlibStreams  [4]io.Reader
 }
 
 // New instatiates a new RFB struct
