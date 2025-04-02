@@ -246,8 +246,15 @@ class RFB {
 
 	applyFramebuffer(fbdata) {
 		let img = document.getElementById(fbdata.Id);
-		if ( img ) {
+		if ( !img ) {
+			return;
+		}
+		if ( img.tagName.toLowerCase() == "img" ) {
 			this.ctx.drawImage(img, 0, 0);
+		} else {
+			for ( let x of img.querySelectorAll("img") ) {
+				this.ctx.drawImage(x, x.dataset.x, x.dataset.y);
+			}
 		}
 	}
 

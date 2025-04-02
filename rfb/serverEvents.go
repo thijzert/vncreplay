@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
-	"image/jpeg"
 	"image/png"
 	"log"
 )
@@ -68,14 +66,32 @@ func (rfb *RFB) consumeServerEvent() error {
 	return nil
 }
 
-func (rfb *RFB) decodeFrameBufferUpdate() int {
-	targetImage := image.NewRGBA(image.Rect(0, 0, rfb.width, rfb.height))
+type encodedImage struct {
+	Bounds   image.Rectangle
+	Mimetype string
+	Contents []byte
+}
 
+func encodeImage(img image.Image) encodedImage {
+	var b bytes.Buffer
+	err := png.Encode(&b, img)
+	if err != nil {
+		log.Printf("Error encoding rect as PNG: %v", err)
+	}
+
+	return encodedImage{
+		Bounds:   img.Bounds(),
+		Mimetype: "image/png",
+		Contents: b.Bytes(),
+	}
+}
+
+func (rfb *RFB) decodeFrameBufferUpdate() int {
 	tEvent := rfb.serverBuffer.CurrentTime()
 	buf := rfb.serverBuffer.Peek(rfb.serverBuffer.Remaining())
 	nRects := rInt(buf[2:4])
-	rectsAdded := 0
 	log.Printf("Number of rects: %d", nRects)
+	var rects []encodedImage
 
 	offset := 4
 	for i := 0; i < nRects; i++ {
@@ -84,17 +100,22 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 
 		if enctype == -239 {
 			rfb.handleCursorUpdate(img)
-		} else if img != nil {
-			b := img.Bounds()
-			draw.Draw(targetImage, b, img, b.Min, draw.Over)
-			rectsAdded++
+		} else if len(img.Contents) > 0 {
+			rects = append(rects, img)
 		}
 	}
 
-	if rectsAdded > 0 {
-		fmt.Fprintf(rfb.htmlOut, "<div>framebuffer update: <img style=\"max-width: 7.5em;\" id=\"framebuffer_%08x\" src=\"data:image/png;base64,", rfb.serverBuffer.CurrentOffset())
-		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), targetImage)
-		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
+	if len(rects) > 0 {
+		fmt.Fprintf(rfb.htmlOut, "<div id=\"framebuffer_%08x\">framebuffer update:", rfb.serverBuffer.CurrentOffset())
+
+		for _, img := range rects {
+			fmt.Fprintf(rfb.htmlOut, "<br />\n\t<img style=\"maxx-width: 7.5em;\" data-x=\"%d\" data-y=\"%d\" src=\"data:%s;base64,", img.Bounds.Min.X, img.Bounds.Min.Y, img.Mimetype)
+			e := base64.NewEncoder(base64.StdEncoding, rfb.htmlOut)
+			e.Write(img.Contents)
+			e.Close()
+			fmt.Fprintf(rfb.htmlOut, "\">")
+		}
+		fmt.Fprintf(rfb.htmlOut, "\n</div>")
 
 		rfb.pushEvent("framebuffer", tEvent, framebuffer{Id: fmt.Sprintf("framebuffer_%08x", rfb.serverBuffer.CurrentOffset())})
 	}
@@ -102,12 +123,14 @@ func (rfb *RFB) decodeFrameBufferUpdate() int {
 	return offset
 }
 
-func (rfb *RFB) handleCursorUpdate(img image.Image) {
+func (rfb *RFB) handleCursorUpdate(img encodedImage) {
 	tEvent := rfb.serverBuffer.CurrentTime()
-	if img.Bounds().Dx() > 0 && img.Bounds().Dy() > 0 {
-		min := img.Bounds().Min
+	if img.Bounds.Dx() > 0 && img.Bounds.Dy() > 0 {
+		min := img.Bounds.Min
 		fmt.Fprintf(rfb.htmlOut, `<div>Draw cursor like this: <img id="pointer_%08x" src="data:image/png;base64,`, rfb.serverBuffer.CurrentOffset())
-		png.Encode(base64.NewEncoder(base64.StdEncoding, rfb.htmlOut), img)
+		f := base64.NewEncoder(base64.StdEncoding, rfb.htmlOut)
+		f.Write(img.Contents)
+		f.Close()
 		fmt.Fprintf(rfb.htmlOut, "\" /></div>\n")
 
 		rfb.pushEvent("pointer-skin", tEvent, pointerSkin{
@@ -121,7 +144,7 @@ func (rfb *RFB) handleCursorUpdate(img image.Image) {
 	}
 }
 
-func (rfb *RFB) nextRect(buf []byte) (bytesRead int, img image.Image, enctype int32) {
+func (rfb *RFB) nextRect(buf []byte) (bytesRead int, img encodedImage, enctype int32) {
 	x := rInt(buf[0:2])
 	y := rInt(buf[2:4])
 	w := rInt(buf[4:6])
@@ -145,7 +168,7 @@ func (rfb *RFB) nextRect(buf []byte) (bytesRead int, img image.Image, enctype in
 			for i := 0; i < w; i++ {
 				if offset >= len(buf) {
 					// log.Printf("Warning: image truncated")
-					return offset, rv, enctype
+					return offset, encodeImage(rv), enctype
 				}
 
 				n, c := rfb.pixelFormat.ReadPixel(buf[offset:])
@@ -169,7 +192,7 @@ func (rfb *RFB) nextRect(buf []byte) (bytesRead int, img image.Image, enctype in
 			}
 		}
 
-		return offset + bitmaskOffset, rv, enctype
+		return offset + bitmaskOffset, encodeImage(rv), enctype
 	} else if enctype == -232 {
 		// Pointer pos (pseudo)
 	} else if enctype == 7 {
@@ -190,16 +213,13 @@ func (rfb *RFB) nextRect(buf []byte) (bytesRead int, img image.Image, enctype in
 		if compressionControl>>4 == 9 {
 			// JPEG
 			rectLength, rectLengthLength := compactLength(buf[13:16])
-			log.Printf("decode %d bytes of JPEG data", rectLength)
-
-			jimg, err := jpeg.Decode(bytes.NewReader(buf[13+rectLengthLength : 13+rectLengthLength+rectLength]))
-			if err != nil {
-				log.Printf("error decoding jpeg data: %v", err)
-				return 13 + rectLengthLength + rectLength, nil, enctype
+			eimg := encodedImage{
+				Bounds:   rv.Bounds(),
+				Mimetype: "image/jpeg",
+				Contents: buf[13+rectLengthLength : 13+rectLengthLength+rectLength],
 			}
-
-			draw.Draw(rv, rv.Bounds(), jimg, jimg.Bounds().Min, draw.Over)
-			return 13 + rectLengthLength + rectLength, rv, enctype
+			log.Printf("got %d bytes of JPEG data", rectLength)
+			return 13 + rectLengthLength + rectLength, eimg, enctype
 		} else if compressionControl>>4 == 8 {
 			// Rect fill
 			fillColour := color.RGBA{buf[13], buf[14], buf[15], 255}
@@ -210,7 +230,7 @@ func (rfb *RFB) nextRect(buf []byte) (bytesRead int, img image.Image, enctype in
 					rv.Set(a, b, fillColour)
 				}
 			}
-			return 16, rv, enctype
+			return 16, encodeImage(rv), enctype
 		} else if compressionControl&0xc0 == 0x40 && buf[13] == 1 {
 			// Basic/Paletted
 			paletteLength := int(buf[14]) + 1
@@ -248,7 +268,7 @@ func (rfb *RFB) nextRect(buf []byte) (bytesRead int, img image.Image, enctype in
 			}
 
 			if paletteLength < 2 {
-				return 15 + 3*paletteLength + rectLengthLength + rectLength, nil, enctype
+				return 15 + 3*paletteLength + rectLengthLength + rectLength, encodedImage{}, enctype
 			} else if paletteLength == 2 {
 				for b := 0; b < h; b++ {
 					hoff := b * ((w + 7) >> 3)
@@ -264,17 +284,17 @@ func (rfb *RFB) nextRect(buf []byte) (bytesRead int, img image.Image, enctype in
 				}
 			}
 
-			return 15 + 3*paletteLength + rectLengthLength + rectLength, rv, enctype
+			return 15 + 3*paletteLength + rectLengthLength + rectLength, encodeImage(rv), enctype
 		} else {
 			log.Printf("unknown compression control byte %02x - ignoring rest of buffer", compressionControl)
-			return len(buf), nil, enctype
+			return len(buf), encodedImage{}, enctype
 		}
 	} else {
 		log.Printf("Unknown encoding type %d - ignoring whole buffer", enctype)
-		return len(buf), nil, enctype
+		return len(buf), encodedImage{}, enctype
 	}
 
-	return 12, nil, 0
+	return 12, encodedImage{}, 0
 }
 
 func (rfb *RFB) readZlib(streamID int, dest []byte, src []byte) (int, error) {
