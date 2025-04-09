@@ -1,6 +1,6 @@
 module github.com/thijzert/vncreplay
 
-go 1.14
+go 1.22
 
 require (
 	github.com/google/gopacket v1.1.18

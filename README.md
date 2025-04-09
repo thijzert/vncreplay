@@ -7,7 +7,8 @@ It has some basic functionality to deal with missing or mangled packets, and out
 
 Building
 --------
-First, install dependencies using `go mod download`.
+VNCreplay depends on the `gopacket` libary, which depends on `libpcap`. Install it using your platform's package manager, e.g. `sudo apt-get install libpcap-dev`.
+
 After that, use `go run build.go` to compile the project.
 
 Usage
